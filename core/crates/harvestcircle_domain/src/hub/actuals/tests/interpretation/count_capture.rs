@@ -18,7 +18,12 @@ fn count_capture_interns_equal_shared_accounts_and_retains_selected_zero_meaning
         records[0].count_explanation.as_ref().unwrap(),
         records[1].count_explanation.as_ref().unwrap()
     ));
+    let expected = records
+        .iter()
+        .map(|record| record.view().unwrap())
+        .collect::<Vec<_>>();
     let inventory = ActualKnownCountInventory::new(facts(&f, records)).unwrap();
+    assert_eq!(inventory.views(), expected);
     let records = &inventory.facts().records;
     assert!(Arc::ptr_eq(
         records[0].count_explanation.as_ref().unwrap(),
@@ -180,6 +185,13 @@ fn complete_correction_capacity_is_unique_history_not_repeated_shared_snapshot_r
         .collect();
     let inventory = ActualKnownCountInventory::new(facts(&f, records)).unwrap();
     assert_eq!(inventory.facts().records.len(), count);
+    assert_eq!(inventory.views().len(), count);
+    assert!(
+        inventory
+            .views()
+            .iter()
+            .all(|view| view.effective_packs == packs(0))
+    );
     assert!(
         inventory
             .facts()

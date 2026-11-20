@@ -1,10 +1,12 @@
 use super::*;
+use crate::hub::actuals::proofs::OriginalReader;
 use harvestcircle_domain::hub::reference::{
     HubLabel, SourceAttribution, SourceCertainty, SourceCode,
 };
 use harvestcircle_domain::hub::stock::HUB_TRACE_CAPACITY;
 use harvestcircle_domain::hub::trace::{TraceScope, TraceSourceEvidence};
 use sqlx::{Row, sqlite::SqliteRow};
+use std::collections::BTreeMap;
 
 impl Database {
     pub async fn hub_trace_page(
@@ -23,7 +25,9 @@ impl Database {
                         query.expected_catalog_revision,
                     )
                     .await?;
-                    let selected = candidates_on(tx, hub, state.revision, &query.selection).await?;
+                    let mut reader = OriginalReader::new(tx);
+                    let selected =
+                        candidates_on(&mut reader, hub, state.revision, &query.selection).await?;
                     let total = u32::try_from(selected.len()).map_err(|_| corrupt_storage())?;
                     if query.offset > total {
                         return Err(invalid_input());
@@ -34,8 +38,14 @@ impl Database {
                         .skip(query.offset as usize)
                         .take(query.limit as usize)
                     {
-                        let snapshot =
-                            super::snapshot::load_on(tx, hub, &state, &catalog, id).await?;
+                        let snapshot = Box::pin(super::snapshot::load_with_proofs_on(
+                            &mut reader,
+                            hub,
+                            &state,
+                            &catalog,
+                            id,
+                        ))
+                        .await?;
                         if !snapshot
                             .includes_source_history(&query.selection)
                             .map_err(|_| corrupt_storage())?
@@ -67,7 +77,7 @@ impl Database {
     }
 }
 async fn candidates_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     cut: HubRevision,
     selection: &TraceSelection,
@@ -78,7 +88,7 @@ async fn candidates_on(
         )
         .bind(hub.as_bytes().as_slice())
         .bind(id.as_bytes().as_slice())
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .map_err(|_| storage_unavailable())?;
         if n != 1 {
@@ -86,14 +96,14 @@ async fn candidates_on(
         }
     }
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_receipts")
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .map_err(|_| storage_unavailable())?;
     if !(0..=HUB_TRACE_CAPACITY as i64).contains(&count) {
         return Err(corrupt_storage());
     }
-    // One bounded original-field scan; no N+1 deep-reader traversal merely to
-    // filter candidates. Selected populations use the complete original readers.
+    // One bounded receipt-field scan plus one authenticated whole-event recipient
+    // inventory. Selected populations share this reader and its proof budget.
     let candidates=sqlx::query(concat!(
         "SELECT substr(r.origin_kind,1,33) AS origin_kind,substr(r.trace_id,1,17) AS trace_id,substr(r.source_id,1,17) AS source_id,substr(r.source_certainty,1,17) AS certainty,substr(s.issuer_id,1,17) AS issuer_id,",
         "substr(CAST(p.label AS BLOB),1,121) AS product_label,substr(CAST(v.label AS BLOB),1,121) AS variant_label,substr(CAST(su.label AS BLOB),1,121) AS supplier_label,",
@@ -105,12 +115,31 @@ async fn candidates_on(
         "LEFT JOIN hub_reference_versions p ON p.record_id=r.product_id AND p.record_revision=r.product_revision LEFT JOIN hub_reference_versions v ON v.record_id=r.variant_id AND v.record_revision=r.variant_revision ",
         "LEFT JOIN hub_reference_versions su ON su.record_id=r.supplier_id AND su.record_revision=r.supplier_revision LEFT JOIN hub_reference_versions pr ON pr.record_id=r.producer_id AND pr.record_revision=r.producer_revision ",
         "LEFT JOIN hub_reference_versions si ON si.record_id=s.issuer_id AND si.record_revision=r.source_issuer_revision ORDER BY r.trace_id LIMIT 4097"
-    )).bind(hub.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if candidates.len() != count as usize {
         return Err(corrupt_storage());
     }
-    let corrections = Box::pin(crate::hub::corrections::source_records_on(tx, hub, cut)).await?;
-    let recipients = Box::pin(crate::hub::corrections::recipient_records_on(tx, hub, cut)).await?;
+    let corrections = Box::pin(crate::hub::corrections::source_records_with_proofs_on(
+        tx, hub, cut,
+    ))
+    .await?;
+    let recipients = Box::pin(crate::hub::corrections::recipient_inventory_with_proofs_on(
+        tx, hub, cut,
+    ))
+    .await?;
+    let mut sources_by_trace = BTreeMap::<_, Vec<_>>::new();
+    for correction in &corrections {
+        sources_by_trace
+            .entry(correction.original.trace)
+            .or_default()
+            .push(correction);
+    }
+    let mut recipients_by_trace = BTreeMap::<_, Vec<_>>::new();
+    for (index, event) in recipients.iter().enumerate() {
+        for trace in &event.populations {
+            recipients_by_trace.entry(*trace).or_default().push(index);
+        }
+    }
     let mut selected = Vec::new();
     let mut found_exact = false;
     for row in candidates {
@@ -194,7 +223,7 @@ async fn candidates_on(
                 &fields.iter().map(String::as_str).collect::<Vec<_>>(),
             )
             .map_err(|_| corrupt_storage())?;
-        for correction in corrections.iter().filter(|c| c.original.trace == trace) {
+        for correction in sources_by_trace.get(&trace).into_iter().flatten() {
             let mut amended_fields = common_fields.clone();
             if let SourceAttribution::Referenced { source, .. } = &correction.after.source {
                 amended_fields.extend([source.id.to_hex(), source.code.as_str().to_owned()]);
@@ -223,26 +252,10 @@ async fn candidates_on(
                 .map_err(|_| corrupt_storage())?;
         }
         if eligible_scope {
-            for record in recipients
-                .iter()
-                .filter(|r| r.original.populations.contains(&trace))
-            {
-                for recipient in [
-                    &harvestcircle_domain::hub::corrections::AmendedRecipient::Known(
-                        record.original.recipient.clone(),
-                    ),
-                    &record.after,
-                ] {
-                    let fields = match recipient {
-                        harvestcircle_domain::hub::corrections::AmendedRecipient::Known(party) => {
-                            vec![party.value.label().as_str().to_owned(), party.id.to_hex()]
-                        }
-                        harvestcircle_domain::hub::corrections::AmendedRecipient::Unknown => {
-                            vec!["Unknown recipient".to_owned()]
-                        }
-                    };
+            for index in recipients_by_trace.get(&trace).into_iter().flatten() {
+                for recipient in &recipients[*index].recipients {
                     included |= selection
-                        .matches_fields(&fields.iter().map(String::as_str).collect::<Vec<_>>())
+                        .matches_recipient(recipient)
                         .map_err(|_| corrupt_storage())?;
                 }
             }

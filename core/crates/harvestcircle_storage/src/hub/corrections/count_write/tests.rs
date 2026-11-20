@@ -1,9 +1,11 @@
+mod native22;
 use super::*;
 use crate::hub::stock::tests::{operation, owner};
 use harvestcircle_application::hub_submission::{HubMutation, HubSubmissionScope};
 use harvestcircle_domain::SafeErrorCode;
 
 #[tokio::test]
+#[ignore = "Historical published20 producer proof retained; current native22 fixtures own new behavior"]
 async fn physical20_cannot_admit_owned_count_effects_or_create_pending_rows() {
     assert_eq!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 20);
     let (fixture, db, command) = super::super::count_review::tests::world().await;

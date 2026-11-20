@@ -16,17 +16,7 @@ pub(super) async fn ensure_capacity_on(
     hub: HubId,
     trace: HubRecordId,
 ) -> Result<(), SafeError> {
-    let count:i64=sqlx::query_scalar(concat!(
-        "SELECT count(*) FROM hub_correction_quantity_changes q JOIN hub_stock_operations o ON o.operation_id=q.operation_id ",
-        "JOIN hub_stock_groups g ON g.group_id=q.group_id WHERE o.hub_id=? AND g.trace_id=?"
-    )).bind(hub.as_bytes().as_slice()).bind(trace.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
-    if count < 0 {
-        return Err(corrupt_storage());
-    }
-    if usize::try_from(count).map_err(|_| corrupt_storage())? >= HUB_CORRECTION_ROWS {
-        return Err(stock::capacity());
-    }
-    Ok(())
+    super::row_budget::ensure_on(tx, hub, trace).await
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -128,17 +118,18 @@ pub(super) fn seal(
 
 /// Resolve the immutable native line independently of any correction head.
 pub(in crate::hub) async fn trace_accounts_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     trace: HubRecordId,
     cut: HubRevision,
 ) -> Result<Vec<DepartureQuantityAccount>, SafeError> {
+    let scope = super::count_return_scope::VerifiedScope::for_cut_on(tx, hub, cut).await?;
     let rows=sqlx::query(concat!(
         "SELECT DISTINCT substr(correction.target_operation_id,1,37) AS target,substr(correction.subject_id,1,17) AS group_id ",
         "FROM hub_corrections correction JOIN hub_stock_operations original ON original.operation_id=correction.operation_id ",
         "JOIN hub_stock_groups subject ON subject.group_id=correction.subject_id WHERE original.hub_id=? AND original.stock_revision<=? ",
         "AND correction.family IN ('found','additional') AND correction.subject_kind='line' AND subject.trace_id=? ORDER BY target,group_id LIMIT 4097"
-    )).bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(trace.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(trace.as_bytes().as_slice()).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if rows.len() > HUB_CORRECTION_ROWS {
         return Err(corrupt_storage());
     }
@@ -158,7 +149,8 @@ pub(in crate::hub) async fn trace_accounts_on(
         if history.amendments.is_empty() {
             return Err(corrupt_storage());
         }
-        let returned = super::funding::returns_on(tx, hub, &original, cut).await?;
+        let returned =
+            super::funding::returns_with_scope_on(tx, hub, &original, cut, scope.as_ref()).await?;
         result.push(history.with_verified_returns(returned.total)?);
     }
     Ok(result)

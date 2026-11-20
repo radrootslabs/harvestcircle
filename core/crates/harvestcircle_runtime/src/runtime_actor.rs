@@ -46,6 +46,9 @@ use hub_stock::{HubStockCommand, HubStockValue};
 #[path = "hub_actuals.rs"]
 mod hub_actuals;
 use hub_actuals::{HubActualCommand, HubActualValue};
+#[path = "hub_corrections.rs"]
+mod hub_corrections;
+use hub_corrections::{HubCorrectionCommand, HubCorrectionReadValue};
 #[path = "hub_counts.rs"]
 mod hub_counts;
 #[path = "hub_custody.rs"]
@@ -68,6 +71,10 @@ const MAX_OUTSTANDING_PROFILE_TASKS: usize = 64;
 
 enum RuntimeCommand {
     Snapshot,
+    HubCorrection {
+        generation: SessionGeneration,
+        command: HubCorrectionCommand,
+    },
     HubHandling {
         generation: SessionGeneration,
         command: HubHandlingCommand,
@@ -125,6 +132,8 @@ enum RuntimeCommand {
 }
 
 enum RuntimeCommandValue {
+    HubCorrection(Option<HubMutationResult>),
+    HubCorrectionRead(HubCorrectionReadValue),
     Hub(Option<HubOwnership>),
     HubReference(HubReferenceValue),
     HubStock(HubStockValue),
@@ -145,6 +154,7 @@ enum RuntimeCommandValue {
 impl RuntimeCommand {
     const fn class(&self) -> RuntimeCommandClass {
         match self {
+            Self::HubCorrection { command, .. } => command.class(),
             Self::HubReference { command, .. } => command.class(),
             Self::HubStock { command, .. } => command.class(),
             Self::HubCount { command, .. } => command.class(),
@@ -172,6 +182,7 @@ impl RuntimeCommand {
 
     const fn is_hub_mutation(&self) -> bool {
         match self {
+            Self::HubCorrection { command, .. } => command.is_mutating(),
             Self::InitializeHub { .. } => true,
             Self::HubReference { command, .. } => command.is_mutating(),
             Self::HubStock { command, .. } => command.is_mutating(),
@@ -1166,6 +1177,13 @@ impl RuntimeActor {
                 generation,
                 command,
             } => self.execute_hub_stock(generation, context, command).await,
+            RuntimeCommand::HubCorrection {
+                generation,
+                command,
+            } => {
+                self.execute_hub_correction(generation, context, command)
+                    .await
+            }
             RuntimeCommand::HubActual {
                 generation,
                 command,

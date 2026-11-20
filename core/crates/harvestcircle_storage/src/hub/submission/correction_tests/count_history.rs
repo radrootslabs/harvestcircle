@@ -20,7 +20,7 @@ fn note() -> SourceProvenance {
 async fn facts(
     db: &Database,
     query: HubCountExplanationQuery,
-) -> Result<count_context::Facts, SafeError> {
+) -> Result<Box<count_context::Facts>, SafeError> {
     db.host()
         .transaction(|tx| {
             Box::pin(async move {

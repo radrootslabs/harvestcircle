@@ -201,6 +201,13 @@ pub(super) async fn original_with_proofs_on(
         .plan(id, op.actor, op.recorded_at)
         .map_err(|_| corrupt_storage())?;
     let impact = super::found_impact::load_with_proofs_on(tx, &context).await?;
+    super::row_budget::require_prior_room_on(
+        tx,
+        hub,
+        plan.original_target.trace,
+        command.expected_stock_revision,
+    )
+    .await?;
     let stored: Vec<u8> = row.try_get("result_hash").map_err(|_| corrupt_storage())?;
     if result_digest(
         &op,

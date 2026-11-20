@@ -255,6 +255,13 @@ pub(super) async fn original_with_proofs_on(
     let plan = command
         .plan(&context.domain(), own, op.actor, op.recorded_at)
         .map_err(|_| corrupt_storage())?;
+    super::row_budget::require_prior_room_on(
+        tx,
+        hub,
+        plan.original_line.trace,
+        command.facts.expected_stock_revision,
+    )
+    .await?;
     let findings = context
         .treatment
         .holds()

@@ -67,6 +67,8 @@ internal fun HubTracePageDto.toModel() =
                 it.actualDepartedWholePacks,
                 it.sourceCorrections.map { correction -> correction.toModel() },
                 it.recipientCorrections.map { correction -> correction.toModel() },
+                it.grossCountedLossWholePacks,
+                it.explainedCountLossWholePacks,
             )
         },
     )
@@ -145,6 +147,11 @@ internal fun HubTraceSnapshotDto.toModel() =
         quantityCorrections.map { it.toModel() },
         sourceCorrections.map { it.toModel() },
         recipientCorrections.map { it.toModel() },
+        grossCountedLossWholePacks,
+        explainedCountLossWholePacks,
+        countInterpretations?.toModel(),
+        countReturnAssociations.map { it.toModel() },
+        countReturnUncertain,
     )
 
 private fun HubTraceHistoryKindDto.toModel() =
@@ -178,6 +185,9 @@ private fun HubTraceHistoryKindDto.toModel() =
         HubTraceHistoryKindDto.ADDITIONAL_CORRECTED -> HubTraceHistoryKind.AdditionalCorrected
         HubTraceHistoryKindDto.SOURCE_ATTRIBUTED -> HubTraceHistoryKind.SourceAttributed
         HubTraceHistoryKindDto.RECIPIENT_ATTRIBUTED -> HubTraceHistoryKind.RecipientAttributed
+        HubTraceHistoryKindDto.COUNT_EXPLAINED -> HubTraceHistoryKind.CountExplained
+        HubTraceHistoryKindDto.COUNT_CLASSIFIED -> HubTraceHistoryKind.CountClassified
+        HubTraceHistoryKindDto.COUNT_RETURN_ASSOCIATED -> HubTraceHistoryKind.CountReturnAssociated
     }
 
 internal fun HubTraceHistoryPageDto.toModel() =

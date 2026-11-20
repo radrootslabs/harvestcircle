@@ -8,6 +8,7 @@ pub(in crate::hub) struct Context {
     pub departure: Option<DepartureRecord>,
     pub totals: Vec<EstablishedReturnTotal>,
     pub current_allowances: Option<harvestcircle_domain::hub::returns::ReturnAllowanceCapture>,
+    pub count_scope: Option<crate::hub::corrections::count_return_scope::VerifiedScope>,
 }
 impl Context {
     pub(in crate::hub) fn domain(&self, hub: HubId) -> ReturnContext<'_> {
@@ -76,6 +77,21 @@ pub(in crate::hub) async fn load_on(
             return Err(corrupt_storage());
         }
     }
+    let count_scope = if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 22 {
+        let mut reader = crate::hub::actuals::proofs::OriginalReader::new(tx);
+        Some(
+            Box::pin(
+                crate::hub::corrections::count_return_scope::VerifiedScope::load_on(
+                    &mut reader,
+                    hub,
+                    state.revision,
+                ),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     let (totals, current_allowances) = match &departure {
         None => (Vec::new(), None),
         Some(departure) if runtime == 0 => (
@@ -83,11 +99,12 @@ pub(in crate::hub) async fn load_on(
             None,
         ),
         Some(departure) => {
-            let captured = crate::hub::corrections::return_allowances::load_on(
+            let captured = crate::hub::corrections::return_allowances::load_with_scope_on(
                 tx,
                 hub,
                 departure,
                 state.revision,
+                count_scope.as_ref(),
             )
             .await?;
             (captured.totals, captured.allowances)
@@ -99,6 +116,7 @@ pub(in crate::hub) async fn load_on(
         departure,
         totals,
         current_allowances,
+        count_scope,
     })
 }
 

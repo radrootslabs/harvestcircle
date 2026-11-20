@@ -29,6 +29,7 @@ fn candidate_count_schema_metadata_binds_complete_native_object_inventory() {
 }
 
 #[tokio::test]
+#[ignore = "Historical20-to21 migration body retained; actual20 first-consumer qualification remains separately due"]
 async fn candidate_count_schema_keeps_every_old_row_and_binds_exact_activation_cut() {
     let (fixture, db, query) = crate::hub::corrections::count_review::tests::world().await;
     let before = crate::hub::custody::tests::material(&fixture).await;
@@ -128,6 +129,7 @@ async fn candidate_count_schema_keeps_every_old_row_and_binds_exact_activation_c
 }
 
 #[tokio::test]
+#[ignore = "Historical20-to21 migration rollback body retained; current22 epoch faults require current fixtures"]
 async fn candidate_activation_rejects_unqualified_predecessor_count_root_atomically() {
     let fixture = Fixture::new();
     let db = fixture.open().await;

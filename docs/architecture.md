@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 20, FFI is 5.29 and snapshot schema is 1. Rust and
+The current storage schema is 22, FFI is 5.30 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -288,10 +288,10 @@ product records separately from the count's immutable labels. Known inventory
 uses the explicit shared-account codec, including empty inventories. Capture
 creates no journal entry or effect. Canonical count-original readers bind captured
 facts, account projections and result seals through shared immutable proofs in one
-transaction read phase. Current schema20 rejects owned explanation/classification
-mutations before durable admission; classification capture also remains closed.
-Positive native posting, complete current consumers and count-associated return
-floors require qualification before activating the prospective native mode.
+transaction read phase. Schema21 activates separately marked native explanation
+and classification roots. Their originals reconstruct the exact historical cuts,
+capture and account heads. Schema20 retains its physical-only interpretation and
+never acquires count mutation permission from descriptive capture material.
 
 Pure count-return association plans retain the whole existing restricted intake
 and its original Unknown or Unrecorded claim, alongside the complete explanation,
@@ -302,6 +302,19 @@ after depletion or later correction, and rejects circular chains. Unknown claims
 are not graph edges. Native original authentication, complete prefix capture,
 atomic association persistence and current authority remain prerequisites; these
 descriptive plans provide no native mutation route or reusable permission.
+
+Schema22 activates association roots with immutable epoch selection, complete
+captured provenance, whole-intake bounds and fresh original readback. Association
+originals share decreasing-cut proofs with count and Return originals. Complete
+included prefixes are authenticated before account filtering; future bodies are
+excluded by canonical journal cuts. The 4,096-body/64MiB cache budget stays
+unchanged; separately bounded fixed certificates may retain verified projections.
+An association supplies a count-return floor and proves disjointness from normal
+physical-debit funding; it never creates a new physical return or allowance.
+Owned Returns bind even an empty association scope to their original admission.
+Genuine pre-runtime compatibility is explicit and survives later runtime
+attachment. Existing Return originals and physical-only encodings retain their
+historical interpretation; missing new-mode evidence cannot select compatibility.
 
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only

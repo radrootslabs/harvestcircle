@@ -67,3 +67,23 @@ pub struct HubSubmittedCountClassification {
     pub uncertain_submissions: bool,
     pub unresolved_return_association: bool,
 }
+
+/// Native22 must authenticate every original and the complete prefix at these
+/// paired cuts. This description cannot assert current ownership or admission.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedCountReturnAssociation {
+    pub id: HubRecordId,
+    pub returned: harvestcircle_domain::hub::returns::ReturnPlan,
+    pub return_original_digest: [u8; 32],
+    pub explanation: CountExplanationPlan,
+    pub account: CountLossQuantityAccount,
+    pub recipient_original: OriginalRecipientAttribution,
+    pub recipient_history: Vec<RecipientAttributionCorrection>,
+    pub associations: Vec<harvestcircle_domain::hub::corrections::CountReturnAssociation>,
+    pub normal_returns: Vec<harvestcircle_domain::hub::corrections::NormalReturnProvenance>,
+    pub prior_trace_correction_rows: usize,
+    pub references: Vec<ReferenceRecord>,
+    pub prior_association_for_return: Option<HubRecordId>,
+    pub latest_recorded_at: UnixTimestamp,
+    pub uncertain_submissions: bool,
+}

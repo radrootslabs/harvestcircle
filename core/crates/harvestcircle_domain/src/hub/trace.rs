@@ -11,6 +11,8 @@ use super::{HubId, HubRevision};
 use crate::{PublicKey, UnixTimestamp};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod counts;
+
 pub const TRACE_PAGE_ROWS: u32 = 64;
 pub const TRACE_SEARCH_BYTES: usize = 128;
 
@@ -180,6 +182,23 @@ impl TraceSelection {
                 .iter()
                 .any(|field| field.to_lowercase().contains(&needle)))
     }
+    /// Match one immutable recipient interpretation separately from receipt fields.
+    pub fn matches_recipient(
+        &self,
+        recipient: &super::corrections::AmendedRecipient,
+    ) -> Result<bool, TraceError> {
+        match recipient {
+            super::corrections::AmendedRecipient::Known(party) => {
+                if !matches!(party.value, super::reference::ReferenceValue::Party { .. }) {
+                    return Err(TraceError::InvalidSnapshot);
+                }
+                self.matches_fields(&[party.value.label().as_str(), &party.id.to_hex()])
+            }
+            super::corrections::AmendedRecipient::Unknown => {
+                self.matches_fields(&["Unknown recipient"])
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -250,12 +269,22 @@ pub struct TraceBalance {
     pub on_hand: WholePacks,
     pub departed: WholePacks,
     pub counted_loss: WholePacks,
+    /// Original physical shortage, before any later factual classification.
+    pub gross_counted_loss: WholePacks,
+    /// Included in actual_departed; never another physical debit.
+    pub explained_count_loss: WholePacks,
     pub disposed: WholePacks,
     /// Verified already-taken departures, separate from planned documents and loss.
     pub actual_departed: WholePacks,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraceSnapshot {
+    /// Native-selected complete count interpretation, including an empty set.
+    /// Gross count losses remain separate immutable physical facts.
+    pub count_interpretations: Option<super::actuals::ActualKnownCountInventory>,
+    pub count_return_associations: Vec<super::corrections::CountReturnAssociation>,
+    /// Conservative unresolved return scope; never current effect permission.
+    pub count_return_uncertain: bool,
     /// Original source stays on `trace`; ordered amendments retain every prior
     /// interpretation and their downstream manual follow-up obligations.
     pub source_corrections: Vec<super::corrections::SourceAttributionCorrection>,
@@ -276,6 +305,7 @@ pub struct TraceSnapshot {
 }
 impl TraceSnapshot {
     fn validate_recipient_corrections(&self) -> Result<(), TraceError> {
+        self.count_accounts()?;
         use super::corrections::{
             CorrectedDepartureFamily, HUB_CORRECTION_ROWS, current_recipient_attribution,
         };
@@ -321,7 +351,16 @@ impl TraceSnapshot {
                                 == original.catalog_revision
                     })
                 }
-                CorrectedDepartureFamily::ExplainedCountLoss => false,
+                CorrectedDepartureFamily::ExplainedCountLoss => self
+                    .count_interpretations
+                    .as_ref()
+                    .is_some_and(|inventory| {
+                        inventory
+                            .facts()
+                            .records
+                            .iter()
+                            .any(|record| record.recipient_original == *original)
+                    }),
             };
             if !matches {
                 return Err(TraceError::InvalidSnapshot);
@@ -366,6 +405,17 @@ impl TraceSnapshot {
         {
             return Ok(super::corrections::AmendedRecipient::Known(
                 actual.comparison.scope.recipient.clone(),
+            ));
+        }
+        if let Some(original) = self.count_interpretations.as_ref().and_then(|inventory| {
+            inventory
+                .facts()
+                .records
+                .iter()
+                .find(|record| record.original.operation == operation)
+        }) {
+            return Ok(super::corrections::AmendedRecipient::Known(
+                original.original.recipient.clone(),
             ));
         }
         Err(TraceError::InvalidSnapshot)
@@ -428,22 +478,35 @@ impl TraceSnapshot {
             )
         });
         if eligible {
+            let originals = self
+                .exits
+                .iter()
+                .map(|exit| &exit.departure.recipient)
+                .chain(
+                    self.actual_departures
+                        .iter()
+                        .map(|actual| &actual.comparison.scope.recipient),
+                )
+                .chain(self.count_interpretations.iter().flat_map(|inventory| {
+                    inventory
+                        .facts()
+                        .records
+                        .iter()
+                        .map(|record| &record.recipient_original.recipient)
+                }));
+            for recipient in originals {
+                if selection.matches_recipient(&super::corrections::AmendedRecipient::Known(
+                    recipient.clone(),
+                ))? {
+                    return Ok(true);
+                }
+            }
             for record in &self.recipient_corrections {
                 for recipient in [
                     &super::corrections::AmendedRecipient::Known(record.original.recipient.clone()),
                     &record.after,
                 ] {
-                    let fields = match recipient {
-                        super::corrections::AmendedRecipient::Known(party) => {
-                            vec![party.value.label().as_str().to_owned(), party.id.to_hex()]
-                        }
-                        super::corrections::AmendedRecipient::Unknown => {
-                            vec!["Unknown recipient".to_owned()]
-                        }
-                    };
-                    if selection
-                        .matches_fields(&fields.iter().map(String::as_str).collect::<Vec<_>>())?
-                    {
+                    if selection.matches_recipient(recipient)? {
                         return Ok(true);
                     }
                 }
@@ -599,7 +662,7 @@ impl TraceSnapshot {
                 .checked_add(physical.packs().map_err(|_| TraceError::InvalidSnapshot)?)
                 .map_err(|_| TraceError::Accounting)?;
         }
-        if !self.quantity_corrections.is_empty() {
+        if !self.quantity_corrections.is_empty() || self.count_interpretations.is_some() {
             return self.corrected_balance(on_hand, disposed);
         }
         if on_hand
@@ -618,6 +681,8 @@ impl TraceSnapshot {
             on_hand,
             departed,
             counted_loss,
+            gross_counted_loss: counted_loss,
+            explained_count_loss: WholePacks::from_value(0).expect("zero"),
             disposed,
             actual_departed,
         })
@@ -698,10 +763,14 @@ impl TraceSnapshot {
         if !amended.is_empty() {
             return Err(TraceError::InvalidSnapshot);
         }
+        let interpreted = self.count_accounts()?;
         let count_losses = self
             .count_losses
             .iter()
             .map(|loss| {
+                if let Some(account) = interpreted.get(&loss.operation) {
+                    return Ok((*account).clone());
+                }
                 CountLossQuantityAccount::restore(
                     OriginalCountLossQuantity {
                         reconciliation: loss.reconciliation,

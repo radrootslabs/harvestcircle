@@ -191,17 +191,20 @@ pub(super) async fn load_with_proofs_on(
     trace: HubRecordId,
     cut: HubRevision,
 ) -> Result<Vec<HubCorrectionKnownDeparture>, SafeError> {
-    // No native reader for these families is qualified yet. Reject them rather
-    // than using a gross-only list that silently loses a known interpretation.
+    // Preserve the published physical-only rejection boundary. Native count
+    // producers include the complete checked account inventory below.
     let unsupported: i64 = sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_corrections c JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
         "WHERE o.hub_id=? AND o.stock_revision<=? AND c.family IN ('count_explain','count_classify')"
     )).bind(hub.as_bytes().as_slice())
         .bind(i64::try_from(cut.value()).map_err(|_| corrupt_storage())?)
         .fetch_one(&mut **tx).await.map_err(|_| storage_unavailable())?;
-    if unsupported != 0 {
+    if unsupported != 0 && crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION < 21 {
         return Err(corrupt_storage());
     }
+    // Recipient and physical originals can themselves refer to a CountE.
+    // Prove earlier count roots before entering either restoration path.
+    Box::pin(super::count_headers::through_on(tx, hub, cut)).await?;
     // Verify complete originals before any denormalized trace filter. A damaged
     // event's trace/variant cannot hide an otherwise relevant immutable event.
     let limit = harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY
@@ -464,6 +467,7 @@ pub(in crate::hub) async fn selected_actual_interpretation_at_with_proofs_on(
     catalog: HubRevision,
 ) -> Result<harvestcircle_domain::hub::actuals::ActualKnownInterpretation, SafeError> {
     let latest = interpretation_clock_on(tx, hub, trace, stock, catalog).await?;
+    Box::pin(super::count_headers::through_on(tx, hub, stock)).await?;
     let op = stock::read::operation_on(tx, hub, operation)
         .await?
         .ok_or_else(corrupt_storage)?;
@@ -539,15 +543,38 @@ pub(super) async fn attribution_affected_on(
     trace: HubRecordId,
     cut: HubRevision,
 ) -> Result<Vec<harvestcircle_domain::hub::corrections::AttributionAffectedDeparture>, SafeError> {
+    Ok(Box::pin(attribution_all_on(tx, hub, cut))
+        .await?
+        .into_iter()
+        .filter(|event| event.populations.contains(&trace))
+        .collect())
+}
+
+/// Authenticate the complete event/recipient prefix before selecting populations.
+/// This remains below Source originals: no current index or funding projection.
+pub(super) async fn attribution_all_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    cut: HubRevision,
+) -> Result<Vec<harvestcircle_domain::hub::corrections::AttributionAffectedDeparture>, SafeError> {
     use harvestcircle_domain::hub::corrections::{AmendedRecipient, AttributionAffectedDeparture};
-    let limit = harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY
-        + harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAPACITY;
-    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind IN ('departure','actual_review') AND stock_revision<=? ORDER BY stock_revision LIMIT ?")
+    // Every family, including metadata-only CountE, consumes one canonical
+    // operation. The journal bounds their combined total independently of events.
+    let limit = harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY;
+    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind IN ('departure','actual_review','correction_count_explain') AND stock_revision<=? ORDER BY stock_revision LIMIT ?")
         .bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(i64::try_from(limit+1).map_err(|_|corrupt_storage())?).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if ids.len() > limit {
         return Err(stock::capacity());
     }
+    Box::pin(super::count_headers::through_on(tx, hub, cut)).await?;
     let recipient_records = Box::pin(super::recipient_records_with_proofs_on(tx, hub, cut)).await?;
+    let mut histories = std::collections::BTreeMap::<_, Vec<_>>::new();
+    for record in recipient_records {
+        histories
+            .entry(record.original.operation)
+            .or_default()
+            .push(record.after);
+    }
     let mut result = Vec::new();
     for id in ids {
         let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
@@ -558,21 +585,18 @@ pub(super) async fn attribution_affected_on(
             continue;
         }
         let original = Box::pin(recipient_on(tx, hub, &id)).await?;
-        if original.populations.contains(&trace) {
-            result.push(AttributionAffectedDeparture {
-                operation: original.operation,
-                populations: original.populations,
-                recipients: std::iter::once(AmendedRecipient::Known(original.recipient))
-                    .chain(
-                        recipient_records
-                            .iter()
-                            .filter(|r| r.original.operation == original.operation)
-                            .map(|r| r.after.clone()),
-                    )
-                    .collect(),
-                issued_versions: original.issued_versions,
-            });
-        }
+        let history = histories.remove(&original.operation).unwrap_or_default();
+        result.push(AttributionAffectedDeparture {
+            operation: original.operation,
+            populations: original.populations,
+            recipients: std::iter::once(AmendedRecipient::Known(original.recipient))
+                .chain(history)
+                .collect(),
+            issued_versions: original.issued_versions,
+        });
+    }
+    if !histories.is_empty() {
+        return Err(corrupt_storage());
     }
     Ok(result)
 }

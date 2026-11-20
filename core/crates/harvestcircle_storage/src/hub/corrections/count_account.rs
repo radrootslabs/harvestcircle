@@ -13,7 +13,8 @@ use harvestcircle_domain::hub::{
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-pub(super) struct History {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::hub) struct History {
     pub original: OriginalCountLossQuantity,
     pub explanations: Vec<CountLossExplanation>,
     pub amendments: Vec<CountExplanationAmendment>,
@@ -284,6 +285,16 @@ pub(super) async fn history_on(
     count: &CountPostPlan,
     cut: HubRevision,
 ) -> Result<History, SafeError> {
+    tx.count_history_on(hub, count, cut).await
+}
+
+pub(in crate::hub) async fn history_in_phase_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    memo: &mut crate::hub::actuals::proofs::CountHistoryCache,
+    hub: HubId,
+    count: &CountPostPlan,
+    cut: HubRevision,
+) -> Result<History, SafeError> {
     use super::count_payload::Command;
     count.validate().map_err(|_| corrupt_storage())?;
     let CountEffect::Shortage { packs, .. } = count.effect else {
@@ -292,6 +303,25 @@ pub(super) async fn history_on(
     if count.count.scope.hub != hub || count.stock_revision.value() > cut.value() {
         return Err(corrupt_storage());
     }
+    // Bind every field of the caller's Count original, not just its account ID.
+    let digest: [u8; 32] =
+        Sha256::digest(serde_json::to_vec(count).map_err(|_| corrupt_storage())?).into();
+    let cached = memo.prefix(hub, digest);
+    if let Some((through, mut history)) = cached.clone()
+        && cut.value() <= through.value()
+    {
+        history
+            .explanations
+            .retain(|row| row.stock_revision.value() <= cut.value());
+        history
+            .amendments
+            .retain(|row| row.stock_revision.value() <= cut.value());
+        return Ok(history);
+    }
+    let after = cached
+        .as_ref()
+        .map(|(through, _)| i64::try_from(through.value()).map_err(|_| corrupt_storage()))
+        .transpose()?;
     let account =
         crate::hub::actuals::common::operation(count.operation).map_err(|_| corrupt_storage())?;
     let through = i64::try_from(cut.value()).map_err(|_| corrupt_storage())?;
@@ -303,33 +333,57 @@ pub(super) async fn history_on(
         "(SELECT count(*) FROM hub_stock_operations o LEFT JOIN hub_corrections c ON c.operation_id=o.operation_id ",
         "WHERE o.kind IN ('correction_count_explain','correction_count_classify') AND (o.hub_id<>?1 OR o.stock_revision<=?2) ",
         "AND (o.hub_id<>?1 OR c.operation_id IS NULL OR c.family<>CASE o.kind WHEN 'correction_count_explain' THEN 'count_explain' ELSE 'count_classify' END))"
-    )).bind(hub.as_bytes().as_slice()).bind(through).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).bind(through).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if invalid != 0 {
+        return Err(corrupt_storage());
+    }
+    let total:i64=sqlx::query_scalar("SELECT count(*) FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=? AND kind IN ('correction_count_explain','correction_count_classify')")
+        .bind(hub.as_bytes().as_slice()).bind(through).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if total < 0 || total > HUB_CORRECTION_ROWS as i64 {
         return Err(corrupt_storage());
     }
     let ids:Vec<String>=sqlx::query_scalar(concat!(
         "SELECT substr(c.operation_id,1,37) FROM hub_corrections c JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
-        "WHERE c.family IN ('count_explain','count_classify') AND o.hub_id=? AND o.stock_revision<=? ",
+        "WHERE c.family IN ('count_explain','count_classify') AND o.hub_id=? AND o.stock_revision<=? AND (? IS NULL OR o.stock_revision>?) ",
         "ORDER BY o.stock_revision LIMIT 4097"
-    )).bind(hub.as_bytes().as_slice()).bind(through).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).bind(through).bind(after).bind(after).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if ids.len() > HUB_CORRECTION_ROWS {
         return Err(corrupt_storage());
     }
-    let mut history = History {
-        original: OriginalCountLossQuantity {
-            reconciliation: count.id,
-            operation: count.operation,
-            stock_revision: count.stock_revision,
-            trace: count.before.trace,
-            variant: count.before.variant,
-            packs,
-        },
-        explanations: Vec::new(),
-        amendments: Vec::new(),
-    };
-    let mut account_head = None;
-    let mut explanation_head = None;
+    let mut history = cached
+        .map(|(_, history)| history)
+        .unwrap_or_else(|| History {
+            original: OriginalCountLossQuantity {
+                reconciliation: count.id,
+                operation: count.operation,
+                stock_revision: count.stock_revision,
+                trace: count.before.trace,
+                variant: count.before.variant,
+                packs,
+            },
+            explanations: Vec::new(),
+            amendments: Vec::new(),
+        });
+    let mut account_head = history
+        .explanations
+        .iter()
+        .map(|row| (row.stock_revision.value(), row.operation))
+        .chain(
+            history
+                .amendments
+                .iter()
+                .map(|row| (row.stock_revision.value(), row.operation)),
+        )
+        .max_by_key(|(revision, _)| *revision)
+        .map(|(_, operation)| operation);
+    let mut explanation_head = history.explanations.last().map(|row| row.operation);
     let mut targets = BTreeMap::new();
+    for row in &history.explanations {
+        targets.insert(row.operation, (row.packs, None));
+    }
+    for row in &history.amendments {
+        targets.insert(row.explanation, (row.after, Some(row.operation)));
+    }
     for id in ids {
         let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
         let op = stock::read::operation_on(tx, hub, &id)
@@ -362,7 +416,7 @@ pub(super) async fn history_on(
                     return Err(corrupt_storage());
                 }
                 let row=sqlx::query("SELECT substr(count_operation_id,1,37) AS count_operation,substr(reconciliation_id,1,17) AS reconciliation,packs,substr(projection_hash,1,33) AS projection_hash FROM hub_correction_count_explanations WHERE operation_id=?")
-                    .bind(id.as_str()).fetch_optional(&mut **tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
+                    .bind(id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
                 let item = CountLossExplanation {
                     operation: own,
                     stock_revision: root.op.revision,
@@ -428,7 +482,7 @@ pub(super) async fn history_on(
                     return Err(corrupt_storage());
                 }
                 let row=sqlx::query("SELECT substr(target_operation_id,1,37) AS target,substr(group_id,1,17) AS group_id,before_packs,after_packs,delta_kind,delta_packs,substr(projection_hash,1,33) AS projection_hash FROM hub_correction_quantity_changes WHERE operation_id=?")
-                    .bind(id.as_str()).fetch_optional(&mut **tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
+                    .bind(id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
                 let item = CountExplanationAmendment {
                     operation: own,
                     stock_revision: root.op.revision,
@@ -477,5 +531,6 @@ pub(super) async fn history_on(
         Vec::new(),
     )
     .map_err(|_| corrupt_storage())?;
+    memo.remember(hub, digest, cut, &history);
     Ok(history)
 }

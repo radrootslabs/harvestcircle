@@ -181,13 +181,14 @@ pub(in crate::hub) async fn additional_outflows_on(
         }
         let target = crate::hub::actuals::common::operation(projection.original.target.operation)
             .map_err(|_| corrupt_storage())?;
-        let history = super::quantity::history_on(
+        // Keep full-history future storage off nested original-proof frames.
+        let history = Box::pin(super::quantity::history_on(
             tx,
             hub,
             &target,
             projection.original.target.group,
             graph.revision(),
-        )
+        ))
         .await?;
         let credits = Box::pin(super::return_allowances::credits_on(
             tx,

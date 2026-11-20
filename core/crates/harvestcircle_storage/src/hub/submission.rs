@@ -110,6 +110,41 @@ pub(in crate::hub) async fn verify_recorded_input_on(
     Ok(())
 }
 
+/// Lower inventory identity only: correlate a closed original command with its
+/// native committed header and admission input digest without loading the
+/// variable capture body. This cannot authenticate a capture/result, construct
+/// an original, establish a current allowance or grant execution. Those owners
+/// must still run their full recorded-input/capture and result verifiers.
+pub(in crate::hub) async fn verify_recorded_input_identity_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: harvestcircle_domain::hub::HubId,
+    op: &crate::hub::stock::read::OperationRecord,
+    request: HubSubmittedRequest<'_>,
+) -> Result<(), SafeError> {
+    let encoded = request.archive().map_err(|_| corrupt_storage())?;
+    let valid: i64 = sqlx::query_scalar(concat!(
+        "SELECT count(*) FROM hub_submissions s JOIN hub_stock_operations o ON o.operation_id=s.operation_id ",
+        "WHERE s.operation_id=?1 AND s.hub_id=?2 AND s.actor_public_key=?3 AND s.kind=?4 ",
+        "AND s.input_hash=?5 AND s.domain_intent_hash=?6 AND s.capture_schema=1 ",
+        "AND length(s.capture_body) BETWEEN 1 AND 16777216 AND length(s.capture_hash)=32 ",
+        "AND length(s.runtime_id)=16 AND s.runtime_id<>zeroblob(16) AND length(s.generation)=8 ",
+        "AND o.hub_id=s.hub_id AND o.actor_public_key=s.actor_public_key AND o.kind=s.kind ",
+        "AND o.intent_hash=s.domain_intent_hash AND o.recorded_at_unix_s>=s.submitted_at_unix_s ",
+        "AND o.stock_revision=?7 AND o.catalog_revision=?8 AND o.recorded_at_unix_s=?9 AND o.result_id=?10 ",
+        "AND NOT EXISTS (SELECT 1 FROM hub_submission_rejections r WHERE r.operation_id=s.operation_id)"
+    ))
+    .bind(op.id.as_str()).bind(hub.as_bytes().as_slice()).bind(op.actor.as_bytes().as_slice())
+    .bind(request.kind()).bind(encoded.digest().as_slice()).bind(op.hash.as_slice())
+    .bind(i64::try_from(op.revision.value()).map_err(|_| corrupt_storage())?)
+    .bind(i64::try_from(op.catalog_revision.value()).map_err(|_| corrupt_storage())?)
+    .bind(op.recorded_at.as_seconds()).bind(op.result.as_bytes().as_slice())
+    .fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
+    if op.kind != request.kind() || valid != 1 {
+        return Err(corrupt_storage());
+    }
+    Ok(())
+}
+
 /// Compare reconstructed immutable native material with the exact admission
 /// capture. Historical ownership here is serializer data, never current authority.
 /// This encoder comparison cannot decode a saved request or renew a fresh grant.

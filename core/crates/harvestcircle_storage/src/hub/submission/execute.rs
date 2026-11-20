@@ -1,5 +1,6 @@
 //! Only a newly committed admission reaches a new effect; saved pending data cannot.
 use super::*;
+
 use crate::{
     HubCountObservationReceipt, HubCountPostReceipt, HubDepartureReceipt, HubDispatchReceipt,
     HubDispositionReceipt, HubHandlingReceipt, HubOpeningReceipt, HubReferenceReceipt,
@@ -28,6 +29,7 @@ pub enum HubMutationResult {
     RecipientAttributed(Box<crate::hub::corrections::HubRecipientAttributionReceipt>),
     CountExplained(Box<crate::hub::corrections::HubCountExplanationReceipt>),
     CountClassified(Box<crate::hub::corrections::HubCountClassificationReceipt>),
+    CountReturnAssociated(Box<crate::hub::corrections::HubCountReturnAssociationReceipt>),
 }
 
 impl std::fmt::Debug for HubMutationResult {
@@ -53,6 +55,7 @@ impl std::fmt::Debug for HubMutationResult {
             Self::RecipientAttributed(_) => "RecipientAttributed",
             Self::CountExplained(_) => "CountExplained",
             Self::CountClassified(_) => "CountClassified",
+            Self::CountReturnAssociated(_) => "CountReturnAssociated",
         };
         f.debug_tuple("HubMutationResult").field(&kind).finish()
     }
@@ -68,15 +71,15 @@ impl Database {
         mutation: HubMutation,
         now: UnixTimestamp,
     ) -> Result<HubMutationResult, SafeError> {
-        let decision = self
-            .host()
-            .transaction(|tx| {
-                Box::pin(
-                    async move { admission::prepare_on(tx, scope, operation, mutation, now).await },
-                )
-            })
-            .await
-            .map_err(map_transaction_error)?;
+        // The admission and executor futures stay heap-bounded: default-stack
+        // callers must not carry the whole effect chain inside this frame.
+        let decision = Box::pin(self.host().transaction(|tx| {
+            Box::pin(
+                async move { admission::prepare_on(tx, scope, operation, mutation, now).await },
+            )
+        }))
+        .await
+        .map_err(map_transaction_error)?;
         match decision {
             admission::Decision::Recorded {
                 operation,
@@ -116,220 +119,283 @@ pub(super) async fn execute_fresh(
             // The owning SDK mapper returns PendingOperationRecoveryRequired
             // for every unconfirmed rollback/commit. Other errors from these
             // transaction-only handlers establish no committed effect.
-            db.host()
-                .transaction(|tx| {
-                    Box::pin(async move { admission::reject_on(tx, &operation, error, now).await })
-                })
-                .await
-                .map_err(|_| admission::outcome_unknown())?;
+            Box::pin(db.host().transaction(|tx| {
+                Box::pin(async move { admission::reject_on(tx, &operation, error, now).await })
+            }))
+            .await
+            .map_err(|_| admission::outcome_unknown())?;
             Err(admission::known_rejection(error.code()))
         }
     }
 }
 
-async fn execute(
-    db: &Database,
+fn execute_count_return<'a>(
+    db: &'a Database,
+    actor: PublicKey,
+    operation: DurableRequestId,
+    command: harvestcircle_domain::hub::corrections::CountReturnAssociationCommand,
+    now: UnixTimestamp,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<HubMutationResult, SafeError>> + Send + 'a>,
+> {
+    Box::pin(async move {
+        let receipt = db
+            .host()
+            .transaction(|tx| {
+                Box::pin(async move {
+                    crate::hub::corrections::count_return_write::apply_on(
+                        tx, actor, operation, command, now,
+                    )
+                    .await
+                })
+            })
+            .await
+            .map_err(map_transaction_error)?;
+        Ok(HubMutationResult::CountReturnAssociated(Box::new(receipt)))
+    })
+}
+
+// Bound the count executor's future storage independently of the dispatcher.
+fn execute_count_explanation<'a>(
+    db: &'a Database,
+    actor: PublicKey,
+    operation: DurableRequestId,
+    command: harvestcircle_domain::hub::corrections::CountExplanationCommand,
+    now: UnixTimestamp,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<HubMutationResult, SafeError>> + Send + 'a>,
+> {
+    Box::pin(async move {
+        let receipt = db
+            .host()
+            .transaction(|tx| {
+                Box::pin(async move {
+                    crate::hub::corrections::count_write::explain_on(
+                        tx, actor, operation, command, now,
+                    )
+                    .await
+                })
+            })
+            .await
+            .map_err(map_transaction_error)?;
+        Ok(HubMutationResult::CountExplained(Box::new(receipt)))
+    })
+}
+
+// Bound the count executor's future storage independently of the dispatcher.
+fn execute_count_classification<'a>(
+    db: &'a Database,
+    actor: PublicKey,
+    operation: DurableRequestId,
+    command: harvestcircle_domain::hub::corrections::CountClassificationCommand,
+    now: UnixTimestamp,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<HubMutationResult, SafeError>> + Send + 'a>,
+> {
+    Box::pin(async move {
+        let receipt = db
+            .host()
+            .transaction(|tx| {
+                Box::pin(async move {
+                    crate::hub::corrections::count_write::classify_on(
+                        tx, actor, operation, command, now,
+                    )
+                    .await
+                })
+            })
+            .await
+            .map_err(map_transaction_error)?;
+        Ok(HubMutationResult::CountClassified(Box::new(receipt)))
+    })
+}
+
+// The dispatcher frame stays independent of any single effect executor: each
+// arm's native transaction is heap-bounded, and the whole executor is boxed
+// so callers do not retain every arm's future storage at their own boundary.
+fn execute<'a>(
+    db: &'a Database,
     actor: PublicKey,
     operation: DurableRequestId,
     mutation: HubMutation,
     now: UnixTimestamp,
-) -> Result<HubMutationResult, SafeError> {
-    use harvestcircle_domain::hub::movement::HandlingCommand;
-    Ok(match mutation {
-        HubMutation::CountExplanation(command) => HubMutationResult::CountExplained(Box::new(
-            db.host()
-                .transaction(|tx| {
-                    Box::pin(async move {
-                        crate::hub::corrections::count_write::explain_on(
-                            tx, actor, operation, *command, now,
-                        )
-                        .await
-                    })
-                })
-                .await
-                .map_err(map_transaction_error)?,
-        )),
-        HubMutation::CountClassification(command) => HubMutationResult::CountClassified(Box::new(
-            db.host()
-                .transaction(|tx| {
-                    Box::pin(async move {
-                        crate::hub::corrections::count_write::classify_on(
-                            tx, actor, operation, *command, now,
-                        )
-                        .await
-                    })
-                })
-                .await
-                .map_err(map_transaction_error)?,
-        )),
-        HubMutation::RecipientAttribution(command) => {
-            HubMutationResult::RecipientAttributed(Box::new(
-                db.host()
-                    .transaction(|tx| {
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<HubMutationResult, SafeError>> + Send + 'a>,
+> {
+    Box::pin(async move {
+        use harvestcircle_domain::hub::movement::HandlingCommand;
+        Ok(match mutation {
+            HubMutation::CountReturnAssociation(command) => {
+                execute_count_return(db, actor, operation, *command, now).await?
+            }
+            HubMutation::CountExplanation(command) => {
+                execute_count_explanation(db, actor, operation, *command, now).await?
+            }
+            HubMutation::CountClassification(command) => {
+                execute_count_classification(db, actor, operation, *command, now).await?
+            }
+            HubMutation::RecipientAttribution(command) => {
+                HubMutationResult::RecipientAttributed(Box::new(
+                    Box::pin(db.host().transaction(|tx| {
                         Box::pin(async move {
                             crate::hub::corrections::recipient_write::apply_on(
                                 tx, actor, operation, *command, now,
                             )
                             .await
                         })
-                    })
+                    }))
                     .await
                     .map_err(map_transaction_error)?,
-            ))
-        }
-        HubMutation::SourceAttribution(command) => HubMutationResult::SourceAttributed(Box::new(
-            db.host()
-                .transaction(|tx| {
-                    Box::pin(async move {
-                        crate::hub::corrections::source_write::apply_on(
-                            tx, actor, operation, *command, now,
-                        )
-                        .await
-                    })
-                })
-                .await
-                .map_err(map_transaction_error)?,
-        )),
-        HubMutation::AdditionalQuantity(command) => {
-            HubMutationResult::AdditionalCorrected(Box::new(
-                db.host()
-                    .transaction(|tx| {
+                ))
+            }
+            HubMutation::SourceAttribution(command) => {
+                HubMutationResult::SourceAttributed(Box::new(
+                    Box::pin(db.host().transaction(|tx| {
+                        Box::pin(async move {
+                            crate::hub::corrections::source_write::apply_on(
+                                tx, actor, operation, *command, now,
+                            )
+                            .await
+                        })
+                    }))
+                    .await
+                    .map_err(map_transaction_error)?,
+                ))
+            }
+            HubMutation::AdditionalQuantity(command) => {
+                HubMutationResult::AdditionalCorrected(Box::new(
+                    Box::pin(db.host().transaction(|tx| {
                         Box::pin(async move {
                             crate::hub::corrections::additional_write::apply_on(
                                 tx, actor, operation, *command, now,
                             )
                             .await
                         })
-                    })
+                    }))
                     .await
                     .map_err(map_transaction_error)?,
-            ))
-        }
-        HubMutation::FoundCorrection(command) => HubMutationResult::FoundCorrected(Box::new(
-            db.host()
-                .transaction(|tx| {
+                ))
+            }
+            HubMutation::FoundCorrection(command) => HubMutationResult::FoundCorrected(Box::new(
+                Box::pin(db.host().transaction(|tx| {
                     Box::pin(async move {
                         crate::hub::corrections::found_write::apply_on(
                             tx, actor, operation, *command, now,
                         )
                         .await
                     })
-                })
+                }))
                 .await
                 .map_err(map_transaction_error)?,
-        )),
-        HubMutation::CorrectionObservation(command) => {
-            HubMutationResult::CorrectionObserved(Box::new(
-                db.host()
-                    .transaction(|tx| {
+            )),
+            HubMutation::CorrectionObservation(command) => {
+                HubMutationResult::CorrectionObserved(Box::new(
+                    Box::pin(db.host().transaction(|tx| {
                         Box::pin(async move {
                             crate::hub::corrections::observe_on(tx, actor, operation, *command, now)
                                 .await
                         })
-                    })
+                    }))
                     .await
                     .map_err(map_transaction_error)?,
-            ))
-        }
-        HubMutation::ActualReport(command) => HubMutationResult::ActualReported(Box::new(
-            db.host()
-                .transaction(|tx| {
+                ))
+            }
+            HubMutation::ActualReport(command) => HubMutationResult::ActualReported(Box::new(
+                Box::pin(db.host().transaction(|tx| {
                     Box::pin(async move {
                         crate::hub::actuals::reports::apply_on(tx, actor, operation, *command, now)
                             .await
                     })
-                })
+                }))
                 .await
                 .map_err(map_transaction_error)?,
-        )),
-        HubMutation::ActualReview(command) => HubMutationResult::ActualReviewed(Box::new(
-            db.host()
-                .transaction(|tx| {
+            )),
+            HubMutation::ActualReview(command) => HubMutationResult::ActualReviewed(Box::new(
+                Box::pin(db.host().transaction(|tx| {
                     Box::pin(async move {
                         crate::hub::actuals::write::departure_on(
                             tx, actor, operation, *command, now,
                         )
                         .await
                     })
-                })
+                }))
                 .await
                 .map_err(map_transaction_error)?,
-        )),
-        HubMutation::ActualLink(command) => HubMutationResult::ActualReviewed(Box::new(
-            db.host()
-                .transaction(|tx| {
+            )),
+            HubMutation::ActualLink(command) => HubMutationResult::ActualReviewed(Box::new(
+                Box::pin(db.host().transaction(|tx| {
                     Box::pin(async move {
                         crate::hub::actuals::links::apply_on(tx, actor, operation, *command, now)
                             .await
                     })
-                })
+                }))
                 .await
                 .map_err(map_transaction_error)?,
-        )),
-        HubMutation::Initialize(candidate) => {
-            HubMutationResult::Initialized(db.initialize_hub(*candidate, &operation, now).await?)
-        }
-        HubMutation::Reference(command) => HubMutationResult::Reference(Box::new(
-            db.apply_hub_reference(actor, operation, *command, now)
-                .await?,
-        )),
-        HubMutation::Receive(command) => HubMutationResult::Received(Box::new(
-            db.apply_hub_receipt(actor, operation, *command, now)
-                .await?,
-        )),
-        HubMutation::Opening(command) => HubMutationResult::Opened(Box::new(
-            db.apply_hub_opening(actor, operation, *command, now)
-                .await?,
-        )),
-        HubMutation::Dispatch(command) => HubMutationResult::Dispatch(Box::new(
-            db.apply_hub_dispatch(actor, operation, *command, now)
-                .await?,
-        )),
-        HubMutation::Departure(command) => HubMutationResult::Departure(Box::new(
-            db.apply_hub_departure(actor, operation, *command, now)
-                .await?,
-        )),
-        HubMutation::Return(command) => HubMutationResult::Returned(Box::new(
-            db.apply_hub_return(actor, operation, *command, now).await?,
-        )),
-        HubMutation::Disposition(command) => HubMutationResult::Disposed(Box::new(
-            db.apply_hub_disposition(actor, operation, *command, now)
-                .await?,
-        )),
-        HubMutation::CountObservation(command) => HubMutationResult::CountObserved(Box::new(
-            db.observe_hub_count(actor, operation, *command, now)
-                .await?,
-        )),
-        HubMutation::Handling(command) => {
-            let receipt = match *command {
-                HandlingCommand::Move(command) => {
-                    db.apply_hub_movement(actor, operation, command, now)
-                        .await?
-                }
-                HandlingCommand::Split(command) => {
-                    db.apply_hub_split(actor, operation, command, now).await?
-                }
-                HandlingCommand::Treatment(command) => {
-                    db.apply_hub_treatment(actor, operation, command, now)
-                        .await?
-                }
-                HandlingCommand::Replan(command) => {
-                    db.apply_hub_replan(actor, operation, command, now).await?
-                }
-                HandlingCommand::NewWork(command) => {
-                    db.apply_hub_new_work(actor, operation, command, now)
-                        .await?
-                }
-                HandlingCommand::Discrepancy(command) => {
-                    db.apply_hub_discrepancy(actor, operation, command, now)
-                        .await?
-                }
-            };
-            HubMutationResult::Handling(Box::new(receipt))
-        }
-        HubMutation::CountPosting(command) => HubMutationResult::CountPosted(Box::new(
-            db.apply_hub_count_post(actor, operation, *command, now)
-                .await?,
-        )),
+            )),
+            HubMutation::Initialize(candidate) => HubMutationResult::Initialized(
+                db.initialize_hub(*candidate, &operation, now).await?,
+            ),
+            HubMutation::Reference(command) => HubMutationResult::Reference(Box::new(
+                db.apply_hub_reference(actor, operation, *command, now)
+                    .await?,
+            )),
+            HubMutation::Receive(command) => HubMutationResult::Received(Box::new(
+                db.apply_hub_receipt(actor, operation, *command, now)
+                    .await?,
+            )),
+            HubMutation::Opening(command) => HubMutationResult::Opened(Box::new(
+                db.apply_hub_opening(actor, operation, *command, now)
+                    .await?,
+            )),
+            HubMutation::Dispatch(command) => HubMutationResult::Dispatch(Box::new(
+                db.apply_hub_dispatch(actor, operation, *command, now)
+                    .await?,
+            )),
+            HubMutation::Departure(command) => HubMutationResult::Departure(Box::new(
+                db.apply_hub_departure(actor, operation, *command, now)
+                    .await?,
+            )),
+            HubMutation::Return(command) => HubMutationResult::Returned(Box::new(
+                db.apply_hub_return(actor, operation, *command, now).await?,
+            )),
+            HubMutation::Disposition(command) => HubMutationResult::Disposed(Box::new(
+                db.apply_hub_disposition(actor, operation, *command, now)
+                    .await?,
+            )),
+            HubMutation::CountObservation(command) => HubMutationResult::CountObserved(Box::new(
+                db.observe_hub_count(actor, operation, *command, now)
+                    .await?,
+            )),
+            HubMutation::Handling(command) => {
+                let receipt = match *command {
+                    HandlingCommand::Move(command) => {
+                        db.apply_hub_movement(actor, operation, command, now)
+                            .await?
+                    }
+                    HandlingCommand::Split(command) => {
+                        db.apply_hub_split(actor, operation, command, now).await?
+                    }
+                    HandlingCommand::Treatment(command) => {
+                        db.apply_hub_treatment(actor, operation, command, now)
+                            .await?
+                    }
+                    HandlingCommand::Replan(command) => {
+                        db.apply_hub_replan(actor, operation, command, now).await?
+                    }
+                    HandlingCommand::NewWork(command) => {
+                        db.apply_hub_new_work(actor, operation, command, now)
+                            .await?
+                    }
+                    HandlingCommand::Discrepancy(command) => {
+                        db.apply_hub_discrepancy(actor, operation, command, now)
+                            .await?
+                    }
+                };
+                HubMutationResult::Handling(Box::new(receipt))
+            }
+            HubMutation::CountPosting(command) => HubMutationResult::CountPosted(Box::new(
+                db.apply_hub_count_post(actor, operation, *command, now)
+                    .await?,
+            )),
+        })
     })
 }

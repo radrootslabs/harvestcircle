@@ -164,25 +164,79 @@ async fn metadata(world: &World) -> Result<target_funding::LoadedFunding, SafeEr
 }
 
 #[tokio::test]
-async fn canonical_found_credit_keeps_full_debit_and_fixed_review_without_effect_adoption() {
+async fn native22_genuine_normal_found_credit_keeps_independent_return_reservation_and_reopens() {
+    let (fixture, db, found) = super::found_review_tests::posting_tests::posted_fixture().await;
+    let target = &found.original.original_target;
+    let input = query(
+        crate::hub::actuals::common::operation(target.operation).unwrap(),
+        target.group,
+    );
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    let evidence = db
+        .hub_correction_target_funding(owner(), input.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        evidence.family,
+        harvestcircle_domain::hub::corrections::CorrectedDepartureFamily::Normal
+    );
+    assert_eq!(evidence.quantity.original().packs.value(), 6);
+    assert_eq!(evidence.quantity.effective().value(), 4);
+    assert_eq!(evidence.debits.len(), 1);
+    assert_eq!(evidence.debits[0].recovered().value(), 2);
+    assert_eq!(evidence.debits[0].returned().value(), 4);
+    assert_eq!(evidence.quantity.established_returns().value(), 4);
+    assert_eq!(evidence.debits[0].available().unwrap().value(), 0);
+    assert_eq!(evidence.debits[0].returns().len(), 2);
+    assert_eq!(evidence.debits[0].credits().len(), 1);
+    assert_eq!(
+        evidence.debits[0].credits()[0].operation,
+        found.original.operation
+    );
+    assert_eq!(
+        evidence.debits[0]
+            .returns()
+            .iter()
+            .map(|r| (r.operation, r.packs.value()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                crate::hub::actuals::common::operation_id(&operation(100)).unwrap(),
+                2
+            ),
+            (
+                crate::hub::actuals::common::operation_id(&operation(1650)).unwrap(),
+                2
+            )
+        ]
+    );
+    assert!(!evidence.uncertain_intent && !evidence.unresolved_actual);
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+    let db = fixture.open().await;
+    assert_eq!(
+        db.hub_correction_target_funding(owner(), input)
+            .await
+            .unwrap(),
+        evidence
+    );
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn synthetic_found_projection_cannot_fund_either_family_without_dense_journal_accounting() {
     for actual in [false, true] {
         let world = seed_debit(false, false, actual).await;
         super::quantity_tests::insert_projection(&world, false).await;
         let before = crate::hub::custody::tests::material(&world.fixture).await;
-        if actual {
-            // A qualified actual requires its full historical interpretation,
-            // including the global journal envelope. This deliberately synthetic
-            // future Found lacks stock-state/event accounting and cannot fund it.
-            assert_eq!(
-                metadata(&world).await.err().unwrap().code(),
-                SafeErrorCode::StorageCorrupt
-            );
-        } else {
-            let loaded = metadata(&world).await.unwrap();
-            assert_eq!(loaded.debits[0].recovered().value(), 2);
-            assert_eq!(loaded.debits[0].available().unwrap().value(), 4);
-            assert_eq!(loaded.quantity.effective().value(), 4);
-        }
+        // Current22 authenticates the complete Return/association cut for both
+        // families. A synthetic future Found with no journal-head accounting
+        // cannot supply that proof, even with internally consistent projection.
+        assert_eq!(
+            metadata(&world).await.err().unwrap().code(),
+            SafeErrorCode::StorageCorrupt
+        );
         assert_eq!(
             world
                 .db

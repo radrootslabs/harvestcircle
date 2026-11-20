@@ -77,7 +77,9 @@ pub(super) async fn at_with_proofs_on(
         .await?
         .ok_or_else(stock::invalid_input)?;
     if op.revision.value() > revision.value()
-        || !matches!(op.kind.as_str(), "departure" | "actual_review")
+        || !(matches!(op.kind.as_str(), "departure" | "actual_review")
+            || (op.kind == "correction_count_explain"
+                && crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 21))
     {
         return Err(stock::invalid_input());
     }

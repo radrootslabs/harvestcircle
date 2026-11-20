@@ -509,6 +509,9 @@ fn actual_trace_snapshot() -> TraceSnapshot {
         PhysicalLineage::new(hub, group.trace, group.variant, plan.stock_revision, after).unwrap();
     let projection = treatment.project(&after, catalog.handling_basis()).unwrap();
     TraceSnapshot {
+        count_interpretations: None,
+        count_return_associations: Vec::new(),
+        count_return_uncertain: false,
         source_corrections: Vec::new(),
         recipient_corrections: Vec::new(),
         quantity_corrections: vec![],

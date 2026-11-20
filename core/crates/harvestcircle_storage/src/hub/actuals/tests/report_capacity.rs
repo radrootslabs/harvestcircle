@@ -4,7 +4,8 @@ use super::mutations::{report, review, scope};
 use super::*;
 use harvestcircle_application::hub_submission::{
     ArchivedHubSubmission, HubMutation, HubSubmissionContext, HubSubmissionScope,
-    HubSubmittedActualLink, HubSubmittedMaterial, HubSubmittedRequest,
+    HubSubmittedActualLink, HubSubmittedCountAwareActualLink, HubSubmittedMaterial,
+    HubSubmittedRequest,
 };
 use harvestcircle_domain::hub::{
     HubId, HubOwnership,
@@ -160,12 +161,15 @@ async fn four_thousand_ninety_seventh_fact_stays_pending_after_all_completed_rep
             .plan_with_interpretation(&record, &meaning, None, op, owner(), at(170))
             .unwrap();
         let hash = link.fingerprint(hub.id(), owner(), op);
-        let material = [HubSubmittedMaterial::ActualLink(Box::new(
-            HubSubmittedActualLink {
-                id: op,
-                report: record.clone(),
-                known: known.clone(),
-                interpretation: Some(meaning.clone()),
+        let material = [HubSubmittedMaterial::CountAwareActualLink(Box::new(
+            HubSubmittedCountAwareActualLink {
+                link: HubSubmittedActualLink {
+                    id: op,
+                    report: record.clone(),
+                    known: known.clone(),
+                    interpretation: Some(meaning.clone()),
+                },
+                count_source: None,
             },
         ))];
         let archive = HubSubmittedRequest::ActualLink(&link)
@@ -183,11 +187,14 @@ async fn four_thousand_ninety_seventh_fact_stays_pending_after_all_completed_rep
         admission_row(&mut raw, &id, scope, hub.id(), &hash, &archive).await;
         revision = HubRevision::from_value(revision.value() + 1).unwrap();
         let seal = actual_duplicate_result_digest(&hash, &link, &plan, revision, catalog).unwrap();
+        let seal = crate::hub::actuals::mode::Capture::Count21.link_result(seal);
         // The fixture link's recorded clock must match its sealed plan.
         sqlx::query("INSERT INTO hub_stock_operations (operation_id,hub_id,actor_public_key,kind,intent_hash,catalog_revision,stock_revision,result_id,recorded_at_unix_s) VALUES (?,?,?,'actual_review',?,?,?,?,170)")
             .bind(id.as_str()).bind(hub.id().as_bytes().as_slice()).bind(owner().as_bytes().as_slice()).bind(hash.as_slice())
             .bind(i64::try_from(catalog.value()).unwrap()).bind(i64::try_from(revision.value()).unwrap()).bind(record.id.as_bytes().as_slice()).execute(&mut raw).await.unwrap();
         sqlx::query("INSERT INTO hub_actual_interpretation_markers (operation_id,hub_id,epoch,legacy_stock_revision,legacy_catalog_revision,stock_revision,catalog_revision,capture_hash) SELECT o.operation_id,o.hub_id,e.epoch,e.legacy_stock_revision,e.legacy_catalog_revision,o.stock_revision,o.catalog_revision,s.capture_hash FROM hub_stock_operations o JOIN hub_actual_interpretation_epochs e ON e.hub_id=o.hub_id JOIN hub_submissions s ON s.operation_id=o.operation_id WHERE o.operation_id=?")
+            .bind(id.as_str()).execute(&mut raw).await.unwrap();
+        sqlx::query("INSERT INTO hub_count_interpretation_markers (operation_id,hub_id,epoch,legacy_stock_revision,legacy_catalog_revision,stock_revision,catalog_revision,capture_hash) SELECT o.operation_id,o.hub_id,e.epoch,e.legacy_stock_revision,e.legacy_catalog_revision,o.stock_revision,o.catalog_revision,s.capture_hash FROM hub_stock_operations o JOIN hub_count_interpretation_epochs e ON e.hub_id=o.hub_id JOIN hub_submissions s ON s.operation_id=o.operation_id WHERE o.operation_id=?")
             .bind(id.as_str()).execute(&mut raw).await.unwrap();
         let (kind, start, end) = crate::hub::actuals::common::occurrence_fields(known.occurred);
         sqlx::query("INSERT INTO hub_actual_reviews (operation_id,report_id,policy_version,review_kind,trace_id,group_id,variant_id,variant_revision,recipient_id,recipient_revision,packs,known_operation_id,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s,verification,lineage_count,scope_count,result_hash) VALUES (?,?,1,'link',?,?,?,?,?,?,2,?,?,?,?,?,0,0,?)")

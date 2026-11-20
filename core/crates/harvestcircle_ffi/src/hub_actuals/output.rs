@@ -299,10 +299,31 @@ impl TryFrom<&harvestcircle_domain::hub::actuals::ActualKnownInterpretation>
     fn try_from(
         value: &harvestcircle_domain::hub::actuals::ActualKnownInterpretation,
     ) -> Result<Self, Self::Error> {
+        let view = value.view().map_err(|_| invalid_input())?;
+        Self::from_view(value, &view)
+    }
+}
+impl HubActualKnownInterpretationDto {
+    pub(crate) fn from_inventory(
+        inventory: &harvestcircle_domain::hub::actuals::ActualKnownCountInventory,
+        index: usize,
+    ) -> Result<Self, HarvestCircleError> {
+        let value = inventory
+            .facts()
+            .records
+            .get(index)
+            .ok_or_else(invalid_input)?;
+        let view = inventory.views().get(index).ok_or_else(invalid_input)?;
+        Self::from_view(value, view)
+    }
+
+    fn from_view(
+        value: &harvestcircle_domain::hub::actuals::ActualKnownInterpretation,
+        view: &harvestcircle_domain::hub::actuals::ActualKnownInterpretationView,
+    ) -> Result<Self, HarvestCircleError> {
         use harvestcircle_domain::hub::corrections::{
             AmendedRecipient, current_recipient_attribution,
         };
-        let view = value.view().map_err(|_| invalid_input())?;
         let recipient = match current_recipient_attribution(
             &value.recipient_original,
             &value.recipient_history,

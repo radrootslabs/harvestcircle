@@ -3,6 +3,7 @@ package org.harvestcircle.integration
 import org.harvestcircle.application.HubActualReportResolutionKind
 import org.harvestcircle.application.HubCorrectionImpactKind
 import org.harvestcircle.application.HubOccurrenceKind
+import org.harvestcircle.application.HubReturnTiming
 import org.harvestcircle.application.HubSourceCertainty
 import org.harvestcircle.application.HubTraceHistoryKind
 import org.harvestcircle.application.HubTraceQuantityAmendmentKind
@@ -12,6 +13,8 @@ import org.harvestcircle.testbridge.ffi.actualReportResolutionEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceHistoryEncodingProbe
 import org.harvestcircle.testbridge.ffi.correctedTraceEncodingProbe
+import org.harvestcircle.testbridge.ffi.countReturnTraceEncodingProbe
+import org.harvestcircle.testbridge.ffi.countTraceEncodingProbe
 import org.harvestcircle.testbridge.ffi.recipientTraceEncodingProbe
 import org.harvestcircle.testbridge.ffi.sourceTraceEncodingProbe
 import kotlin.test.Test
@@ -23,6 +26,72 @@ import kotlin.test.assertTrue
 // This is an encoding/read-consumer fixture, not native admission or persisted
 // effect acceptance. Real storage worlds qualify those independently.
 class ActualTraceReadAcceptanceTest {
+    @Test
+    fun generatedIncomingReturnAssociationKeepsBothPopulationsAndEmptyLocalCountInventory() {
+        val model = countReturnTraceEncodingProbe().toModel()
+        val counts = assertNotNull(model.countInterpretations)
+        assertTrue(counts.accounts.isEmpty() && counts.explanations.isEmpty())
+        val link = model.countReturnAssociations.single()
+        assertEquals(model.trace.id, link.returnedPopulationId)
+        assertNotEquals(link.returnedPopulationId, link.explanationTraceId)
+        assertNotEquals(link.returnOperationId, link.explanationOperationId)
+        assertEquals(HubReturnTiming.Uncertain, link.timing)
+        assertEquals(HubOccurrenceKind.Unknown, link.returnOccurrence.kind)
+        assertEquals(HubOccurrenceKind.Known, link.explanationOccurrence.kind)
+        assertEquals(model.stockRevision, link.stockRevision)
+        assertEquals(1U, link.wholePacks)
+        assertEquals(1U, model.onHandWholePacks)
+        assertEquals(0U, model.actualDepartedWholePacks)
+        assertEquals(0U, model.countedLossWholePacks)
+    }
+
+    @Test
+    fun generatedCountInventorySharesAccountsAndKeepsZeroUnknownAndClassificationMeanings() {
+        val native = countTraceEncodingProbe()
+        val model = native.toModel()
+        val counts = assertNotNull(model.countInterpretations)
+        assertEquals(native.stockRevision, counts.stockRevision)
+        assertEquals(1, counts.accounts.size)
+        assertEquals(2, counts.explanations.size)
+        assertEquals(
+            2,
+            counts.accounts
+                .single()
+                .classifications.size,
+        )
+        assertEquals(
+            1U,
+            counts.explanations
+                .first()
+                .interpretation.originalWholePacks,
+        )
+        assertEquals(
+            0U,
+            counts.explanations
+                .first()
+                .interpretation.effectiveWholePacks,
+        )
+        assertEquals(
+            2U,
+            counts.explanations
+                .last()
+                .interpretation.effectiveWholePacks,
+        )
+        assertEquals(
+            null,
+            counts.explanations
+                .last()
+                .interpretation.recipient,
+        )
+        assertEquals(counts.explanations.last().originalRecipient, model.recipientCorrections.single().originalRecipient)
+        assertEquals(2U, model.grossCountedLossWholePacks)
+        assertEquals(2U, model.explainedCountLossWholePacks)
+        assertEquals(0U, model.countedLossWholePacks)
+        assertEquals(2U, model.actualDepartedWholePacks)
+        assertEquals(18U, model.onHandWholePacks)
+        assertEquals(2U, model.countLosses.single().wholePacks)
+    }
+
     @Test
     fun generatedLinkMeaningRetainsOriginalTwoEffectiveZeroAndUnknownWithoutRecipientFallback() {
         val native = actualLinkInterpretationEncodingProbe()

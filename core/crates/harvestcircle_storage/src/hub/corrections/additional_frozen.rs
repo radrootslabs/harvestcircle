@@ -333,6 +333,10 @@ async fn restore_data_on(
     } else {
         false
     };
+    let return_scope = super::count_return_scope::VerifiedScope::for_cut_on(tx, hub, cut)
+        .await?
+        .map(|scope| scope.material(command.facts.target_operation))
+        .transpose()?;
     let context = Context {
         hub,
         revision: cut,
@@ -351,6 +355,7 @@ async fn restore_data_on(
         latest_recorded_at: UnixTimestamp::from_seconds(latest).ok_or_else(corrupt_storage)?,
         uncertain_submissions: false,
         count_aware,
+        return_scope,
     };
     if encode(&context)? != canonical_bytes {
         return Err(corrupt_storage());

@@ -21,6 +21,8 @@ use serde_json::Value;
 use std::io::Write;
 
 mod count;
+mod count_return;
+mod return_scope;
 
 fn id(n: u8) -> HubRecordId {
     HubRecordId::from_bytes([n; 16]).unwrap()

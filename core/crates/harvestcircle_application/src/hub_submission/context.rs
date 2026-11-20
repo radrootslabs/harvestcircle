@@ -141,6 +141,20 @@ pub struct HubSubmittedReturn {
     pub current_allowances: Option<harvestcircle_domain::hub::returns::ReturnAllowanceCapture>,
 }
 
+/// Compact descriptive commitment to the complete native count-association
+/// prefix, including an empty prefix. This data cannot authenticate that prefix
+/// or grant a Return; native original recovery must reconstruct it independently.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedReturnScope {
+    pub id: HubRecordId,
+    pub hub: harvestcircle_domain::hub::HubId,
+    pub stock_revision: HubRevision,
+    pub epoch_stock_revision: u64,
+    pub epoch_catalog_revision: u64,
+    pub associations: u32,
+    pub evidence_digest: [u8; 32],
+}
+
 /// Current native physical and treatment context, not caller-supplied safety flags.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct HubSubmittedDisposition {
@@ -284,6 +298,8 @@ pub enum HubSubmittedMaterial {
     CountClassification(Box<HubSubmittedCountClassification>),
     CountAwareActualReview(Box<HubSubmittedCountAwareActualReview>),
     CountAwareActualLink(Box<HubSubmittedCountAwareActualLink>),
+    CountReturnAssociation(Box<HubSubmittedCountReturnAssociation>),
+    ReturnScope(Box<HubSubmittedReturnScope>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -309,6 +325,8 @@ impl HubSubmittedMaterial {
             Self::CountClassification(v) => (18, v.id, 0),
             Self::CountAwareActualReview(v) => (19, v.review.id, 0),
             Self::CountAwareActualLink(v) => (20, v.link.id, 0),
+            Self::CountReturnAssociation(v) => (21, v.id, 0),
+            Self::ReturnScope(v) => (22, v.id, 0),
         }
     }
 }

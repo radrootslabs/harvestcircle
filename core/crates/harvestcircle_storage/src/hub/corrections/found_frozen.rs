@@ -305,13 +305,9 @@ pub(super) async fn restore_with_proofs_on(
         expected_stock_revision: revision,
         expected_catalog_revision: op.catalog_revision,
     };
-    let material = [
-        harvestcircle_application::hub_submission::HubSubmittedMaterial::FoundCorrection(Box::new(
-            context.material(
-                crate::hub::actuals::common::operation_id(&op.id).map_err(|_| corrupt_storage())?,
-            ),
-        )),
-    ];
+    let material = context.submitted_material(
+        crate::hub::actuals::common::operation_id(&op.id).map_err(|_| corrupt_storage())?,
+    )?;
     let admission = crate::hub::submission::verify_recorded_capture_on(
         tx,
         hub,

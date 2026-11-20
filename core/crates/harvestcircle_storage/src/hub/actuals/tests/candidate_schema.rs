@@ -18,6 +18,8 @@ async fn registered_schema_retains18_and_exact_forward_replacements_without_cloc
     );
     let mut replacements = crate::hub::corrections::schema::schema_objects().unwrap();
     replacements.extend(crate::hub::actuals::interpretation_schema::schema_objects().unwrap());
+    replacements.extend(crate::hub::corrections::count_schema::schema_objects().unwrap());
+    replacements.extend(crate::hub::corrections::count_return_schema::schema_objects().unwrap());
     let fixture = Fixture::new();
     let db = fixture.open().await;
     let original = received(&db).await;
@@ -38,9 +40,11 @@ async fn registered_schema_retains18_and_exact_forward_replacements_without_cloc
         .unwrap();
         let expected = if crate::hub::corrections::schema::REPLACED_OBJECTS.contains(&object.name())
             || crate::hub::actuals::interpretation_schema::REPLACED_OBJECTS.contains(&object.name())
+            || crate::hub::corrections::count_schema::REPLACED_OBJECTS.contains(&object.name())
         {
             let replacement = replacements
                 .iter()
+                .rev()
                 .find(|candidate| candidate.name() == object.name())
                 .unwrap();
             assert_ne!(

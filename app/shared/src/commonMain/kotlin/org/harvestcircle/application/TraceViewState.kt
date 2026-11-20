@@ -2,6 +2,8 @@ package org.harvestcircle.application
 
 enum class TraceSection { Overview, History }
 
+enum class TraceCountSection { Accounts, Explanations, Classifications, ReturnAssociations }
+
 data class TraceViewState(
     val available: Boolean = false,
     val open: Boolean = false,
@@ -16,6 +18,10 @@ data class TraceViewState(
     val positionsOffset: Int = 0,
     val exitsOffset: Int = 0,
     val countLossesOffset: Int = 0,
+    val countAccountsOffset: Int = 0,
+    val countExplanationsOffset: Int = 0,
+    val countClassificationsOffset: Int = 0,
+    val countAssociationsOffset: Int = 0,
     val dispositionsOffset: Int = 0,
     val actualDeparturesOffset: Int = 0,
     val quantityCorrectionsOffset: Int = 0,

@@ -22,6 +22,23 @@ use radroots_service_sqlite::ServiceSqliteTransaction;
 use sqlx::Row;
 use stock::read::OperationRecord;
 
+#[cfg(test)]
+pub(in crate::hub) async fn test_count_prefix_on(
+    reader: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    cut: HubRevision,
+) -> Result<(), SafeError> {
+    count_headers::through_on(reader, hub, cut).await
+}
+
+#[cfg(test)]
+pub(in crate::hub) async fn test_count_global_on(
+    reader: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+) -> Result<(), SafeError> {
+    count_headers::on(reader, hub).await
+}
+
 const OBSERVATION_TOTAL_BYTES: i64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Default)]
@@ -105,14 +122,6 @@ pub(in crate::hub) async fn reservations_on(
     })
 }
 
-pub(in crate::hub) async fn headers_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
-    hub: HubId,
-) -> Result<(), SafeError> {
-    let mut reader = OriginalReader::new(tx);
-    Box::pin(headers_with_proofs_on(&mut reader, hub)).await
-}
-
 pub(in crate::hub) async fn headers_with_proofs_on(
     tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
@@ -152,6 +161,13 @@ pub(in crate::hub) async fn headers_with_proofs_on(
         Box::pin(source_ledger::load_with_proofs_on(tx, hub)).await?;
     }
     Box::pin(count_headers::on(tx, hub)).await?;
+    if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 22 {
+        let cut = stock::read::journal_state_on(tx, hub).await?.revision;
+        // Current exposure authenticates every new association and Return mode
+        // under this same proof owner. Historical restoration uses its own
+        // immutable cut and never calls this current-state audit.
+        Box::pin(count_return_scope::VerifiedScope::load_on(tx, hub, cut)).await?;
+    }
     Ok(())
 }
 
@@ -220,8 +236,18 @@ pub use known::{HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorr
 mod additional_review;
 mod attribution_review;
 mod count_account;
+pub(in crate::hub) use count_account::{
+    History as CountHistory, history_in_phase_on as count_history_in_phase_on,
+};
 mod count_classification;
+mod count_effect_reviews;
+#[cfg(test)]
 pub(in crate::hub) use count_classification::capture_on as capture_count_classification_on;
+pub(in crate::hub) use count_classification::capture_with_proofs_on as capture_count_classification_with_proofs_on;
+pub use count_effect_reviews::{
+    HubCountClassificationReview, HubCountClassificationReviewOutcome,
+    HubCountReturnAssociationReview, HubCountReturnAssociationReviewOutcome,
+};
 pub(in crate::hub) mod count_class_record;
 pub use count_class_record::HubCountClassificationReceipt;
 pub(in crate::hub) mod count_context;
@@ -230,10 +256,22 @@ mod count_known;
 pub(in crate::hub) mod count_mode;
 mod count_payload;
 pub(in crate::hub) mod count_record;
+pub(in crate::hub) mod count_return_context;
+mod count_return_history;
+pub(in crate::hub) mod count_return_ledger;
+mod count_return_payload;
+pub(in crate::hub) mod count_return_record;
+pub(in crate::hub) mod count_return_scope;
+pub(in crate::hub) mod count_trace;
+pub(in crate::hub) mod return_mode;
+mod row_budget;
+pub use count_return_record::HubCountReturnAssociationReceipt;
+pub(in crate::hub) use row_budget::through_from_on as correction_rows_from_on;
+pub(in crate::hub) mod count_return_write;
 mod count_returns;
 pub(in crate::hub) mod count_write;
-// Metadata is qualified before registering the forward native producer.
-#[cfg(test)]
+// Independently versioned forward catalogs preserve every predecessor.
+pub(crate) mod count_return_schema;
 pub(crate) mod count_schema;
 pub(in crate::hub) use count_context::capture_on as capture_count_explanation_on;
 pub use count_record::HubCountExplanationReceipt;
@@ -303,14 +341,12 @@ pub(in crate::hub) async fn source_history_with_proofs_on(
         .collect())
 }
 
-pub(in crate::hub) async fn recipient_records_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+pub(in crate::hub) async fn recipient_inventory_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     cut: HubRevision,
-) -> Result<Vec<harvestcircle_domain::hub::corrections::RecipientAttributionCorrection>, SafeError>
-{
-    let mut reader = OriginalReader::new(tx);
-    Box::pin(recipient_records_with_proofs_on(&mut reader, hub, cut)).await
+) -> Result<Vec<harvestcircle_domain::hub::corrections::AttributionAffectedDeparture>, SafeError> {
+    Box::pin(known::attribution_all_on(tx, hub, cut)).await
 }
 
 pub(in crate::hub) async fn recipient_records_with_proofs_on(
@@ -426,10 +462,10 @@ pub(in crate::hub) async fn capture_found_on(
     actor: PublicKey,
     operation: &DurableRequestId,
     command: &harvestcircle_domain::hub::corrections::FoundCorrectionCommand,
-) -> Result<harvestcircle_application::hub_submission::HubSubmittedFoundCorrection, SafeError> {
+) -> Result<Vec<harvestcircle_application::hub_submission::HubSubmittedMaterial>, SafeError> {
     let context = found_context::prepare_on(tx, hub, actor, operation, command, None).await?;
     quantity::ensure_capacity_on(tx, hub, context.funding.quantity.original().trace).await?;
-    Ok(context.material(crate::hub::actuals::common::operation_id(operation)?))
+    context.submitted_material(crate::hub::actuals::common::operation_id(operation)?)
 }
 pub use found_review::{
     HubFoundCorrectionReview, HubFoundCorrectionReviewBlocker, HubFoundCorrectionReviewOutcome,

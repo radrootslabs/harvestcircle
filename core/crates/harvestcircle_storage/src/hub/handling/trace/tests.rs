@@ -1,4 +1,5 @@
 use super::*;
+mod recipient_search;
 use crate::HubDispatchReceipt;
 use crate::hub::stock::tests::{Fixture, command, id, now, operation, other, owner, query, setup};
 use harvestcircle_domain::hub::departure::DepartureCommand;
@@ -80,6 +81,14 @@ async fn accept(db: &Database, group: HubRecordId, op: u32) {
     .unwrap();
 }
 async fn issue(db: &Database, groups: &[HubRecordId], op: u32) -> HubDispatchReceipt {
+    issue_to(db, groups, op, id(3)).await
+}
+async fn issue_to(
+    db: &Database,
+    groups: &[HubRecordId],
+    op: u32,
+    recipient: HubRecordId,
+) -> HubDispatchReceipt {
     let page = db.hub_stock_page(owner(), query()).await.unwrap();
     let mut lines = Vec::new();
     for id in groups {
@@ -98,7 +107,7 @@ async fn issue(db: &Database, groups: &[HubRecordId], op: u32) -> HubDispatchRec
                 expected_stock_revision: page.revision,
                 expected_catalog_revision: page.catalog_revision,
                 action: DispatchAction::Prepare {
-                    recipient: id(3),
+                    recipient,
                     lines: DispatchSelection::new(lines).unwrap(),
                 },
                 observation: note("Reviewed all original population lines"),

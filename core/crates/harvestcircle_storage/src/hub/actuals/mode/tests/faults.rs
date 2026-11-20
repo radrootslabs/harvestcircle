@@ -21,7 +21,7 @@ async fn drop_guard(raw: &mut SqliteConnection, name: &str) -> String {
 }
 
 #[tokio::test]
-async fn native20_missing_resealed_marker_epoch_and_capture_cannot_downgrade_a_qualified_original()
+async fn native22_missing_resealed_marker_epoch_and_capture_cannot_downgrade_a_qualified_original()
 {
     for linked in [false, true] {
         for fault in 0..5 {
@@ -91,18 +91,37 @@ async fn native20_missing_resealed_marker_epoch_and_capture_cannot_downgrade_a_q
                             .await
                             .unwrap();
                     } else if fault == 4 {
-                        // Relabeling a new qualified seal as old mode still fails.
+                        // Keep every parent cut dependency-valid so the selector
+                        // really reaches Legacy; the authentic qualified result
+                        // still cannot be interpreted as an old original.
                         guards.push(
                             drop_guard(&mut raw, "hub_actual_interpretation_epochs_no_update")
                                 .await,
                         );
                         sqlx::query(
-                            "UPDATE hub_actual_interpretation_epochs SET legacy_stock_revision=?",
+                            "UPDATE hub_actual_interpretation_epochs SET legacy_stock_revision=?,legacy_catalog_revision=?",
                         )
                         .bind(i64::try_from(original.revision.value()).unwrap())
+                        .bind(i64::try_from(original.catalog_revision.value()).unwrap())
                         .execute(&mut raw)
                         .await
                         .unwrap();
+                        guards.push(
+                            drop_guard(&mut raw, "hub_count_interpretation_markers_no_delete")
+                                .await,
+                        );
+                        sqlx::query("DELETE FROM hub_count_interpretation_markers")
+                            .execute(&mut raw)
+                            .await
+                            .unwrap();
+                        for table in ["hub_count_interpretation_epochs", "hub_count_return_epochs"]
+                        {
+                            guards.push(drop_guard(&mut raw, &format!("{table}_no_update")).await);
+                            sqlx::query(AssertSqlSafe(format!("UPDATE {table} SET legacy_stock_revision=?,legacy_catalog_revision=?")))
+                                .bind(i64::try_from(original.revision.value()).unwrap())
+                                .bind(i64::try_from(original.catalog_revision.value()).unwrap())
+                                .execute(&mut raw).await.unwrap();
+                        }
                     }
                 }
                 1 => {
@@ -124,7 +143,7 @@ async fn native20_missing_resealed_marker_epoch_and_capture_cannot_downgrade_a_q
                     let prefix = if linked {
                         ",\"interpretation\":"
                     } else {
-                        ",\"interpretations\":"
+                        ",\"inventory\":"
                     };
                     let start = text.find(prefix).unwrap();
                     // Inspect data only, keeping exact original request bytes/order.
@@ -144,9 +163,14 @@ async fn native20_missing_resealed_marker_epoch_and_capture_cannot_downgrade_a_q
                     guards.push(
                         drop_guard(&mut raw, "hub_actual_interpretation_markers_no_update").await,
                     );
+                    guards.push(
+                        drop_guard(&mut raw, "hub_count_interpretation_markers_no_update").await,
+                    );
                     sqlx::query("UPDATE hub_submissions SET capture_body=?,capture_hash=? WHERE operation_id=?")
                     .bind(forged.as_bytes()).bind(metadata.capture_digest.as_slice()).bind(operation.as_str()).execute(&mut raw).await.unwrap();
                     sqlx::query("UPDATE hub_actual_interpretation_markers SET capture_hash=? WHERE operation_id=?")
+                    .bind(metadata.capture_digest.as_slice()).bind(operation.as_str()).execute(&mut raw).await.unwrap();
+                    sqlx::query("UPDATE hub_count_interpretation_markers SET capture_hash=? WHERE operation_id=?")
                     .bind(metadata.capture_digest.as_slice()).bind(operation.as_str()).execute(&mut raw).await.unwrap();
                 }
                 _ => unreachable!(),
@@ -157,7 +181,38 @@ async fn native20_missing_resealed_marker_epoch_and_capture_cannot_downgrade_a_q
                     .await
                     .unwrap();
             }
+            assert!(
+                sqlx::query("PRAGMA foreign_key_check")
+                    .fetch_all(&mut raw)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
             raw.close().await.unwrap();
+            if fault == 3 || fault == 4 {
+                let selected = operation.clone();
+                db.host()
+                    .transaction(|tx| {
+                        Box::pin(async move {
+                            let hub = crate::hub::reference::authorize_on(tx, owner()).await?.id();
+                            let op = crate::hub::stock::read::operation_on(tx, hub, &selected)
+                                .await?
+                                .unwrap();
+                            let mode = super::super::original_on(tx, hub, &op).await?;
+                            if fault == 3 {
+                                assert!(matches!(mode, super::super::Mode::CountQualified { .. }));
+                            } else {
+                                crate::hub::corrections::count_mode::epoch_on(tx, hub).await?;
+                                crate::hub::corrections::count_return_ledger::epoch_on(tx, hub)
+                                    .await?;
+                                assert!(matches!(mode, super::super::Mode::Legacy(_)));
+                            }
+                            Ok::<_, harvestcircle_domain::SafeError>(())
+                        })
+                    })
+                    .await
+                    .unwrap();
+            }
             let before = crate::hub::custody::tests::material(&fixture).await;
             assert_eq!(
                 db.hub_actual_review_operation(owner(), operation.clone())

@@ -420,6 +420,7 @@ pub(in crate::hub) async fn read_on(
 #[cfg(test)]
 mod tests {
     use super::*;
+    mod native22;
     fn fixture() -> Data {
         let text = |n| HubRecordId::from_bytes([n; 16]).unwrap().to_hex();
         Data {

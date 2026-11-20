@@ -81,6 +81,12 @@ pub(in crate::hub) fn rebuild_on<'a, 'reader, 'connection>(
         if plan.amendment.stock_revision != root.op.revision {
             return Err(corrupt_storage());
         }
+        tx.require_prior_correction_room_on(
+            hub,
+            plan.count.before.trace,
+            command.expected_stock_revision,
+        )
+        .await?;
         let material = [HubSubmittedMaterial::CountClassification(Box::new(
             context.material(own)?,
         ))];

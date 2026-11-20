@@ -145,6 +145,12 @@ pub(super) async fn record_on(
         .map_err(|_| corrupt_storage())?;
     let kind: String = row.try_get("kind").map_err(|_| corrupt_storage())?;
     if !known_hub_submission_kind(&kind)
+        || (crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION < 21
+            && matches!(
+                kind.as_str(),
+                "correction_count_explain" | "correction_count_classify"
+            ))
+        || (crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION < 22 && kind == "count_return_associate")
         || row
             .try_get::<i64, _>("capture_schema")
             .map_err(|_| corrupt_storage())?

@@ -8,7 +8,11 @@ use crate::{
             count_class_record::{self, HubCountClassificationReceipt},
             count_mode,
             count_record::{self, HubCountExplanationReceipt},
+            count_return_ledger,
+            count_return_record::{self, HubCountReturnAssociationReceipt},
+            return_mode,
         },
+        custody::returns::{self, HubReturnReceipt},
         stock,
     },
 };
@@ -26,9 +30,19 @@ const ENTRIES: usize = harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAP
 // Receipt bodies retain the existing shared entry/64MiB budget. Fixed-shape
 // certificates additionally cover every permitted correction root; cache limits
 // must not reject a valid maximum count history after bodies are evicted.
-const CERTIFICATES: usize = ENTRIES + harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS;
+const CERTIFICATES: usize = ENTRIES
+    + harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS
+    + harvestcircle_domain::hub::stock::HUB_TRACE_CAPACITY
+    + harvestcircle_domain::hub::stock::HUB_TRACE_CAPACITY;
 const PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
+mod count_history;
+mod count_prefix;
+mod count_rows;
+pub(in crate::hub) use count_history::CountHistoryCache;
+pub(in crate::hub) use count_rows::CountRowSeed;
+mod count_return;
+mod normal_return;
 #[cfg(test)]
 mod tests;
 
@@ -53,6 +67,11 @@ struct Key {
 enum InterpretationMode {
     Actual(mode::Mode),
     Count(count_mode::Mode),
+    CountReturn(count_return_ledger::Epoch),
+    Return {
+        epoch: Option<count_return_ledger::Epoch>,
+        kind: Option<return_mode::Kind>,
+    },
 }
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Seals {
@@ -101,10 +120,15 @@ enum Receipt {
     Actual(Arc<HubActualReviewReceipt>),
     Count(Arc<HubCountExplanationReceipt>),
     Classification(Arc<HubCountClassificationReceipt>),
+    CountReturn(Arc<HubCountReturnAssociationReceipt>),
+    Return(Arc<HubReturnReceipt>),
 }
 enum Certificate {
     Actual(bool),
     Count,
+    // One bounded fixed-shape projection, never its variable context/original.
+    CountReturn(Box<harvestcircle_domain::hub::corrections::CountReturnAssociation>),
+    Return(Option<Box<harvestcircle_domain::hub::corrections::NormalReturnProvenance>>),
 }
 
 struct Proofs {
@@ -151,12 +175,18 @@ impl Default for Proofs {
 pub(in crate::hub) struct OriginalReader<'borrow, 'connection> {
     tx: &'borrow mut ServiceSqliteTransaction<'connection>,
     proofs: Proofs,
+    count_prefix: count_prefix::CountPrefix,
+    count_history: CountHistoryCache,
+    count_rows: count_rows::CountRows,
 }
 impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
     pub(in crate::hub) fn new(tx: &'borrow mut ServiceSqliteTransaction<'connection>) -> Self {
         Self {
             tx,
             proofs: Proofs::default(),
+            count_prefix: count_prefix::CountPrefix::default(),
+            count_history: CountHistoryCache::new(),
+            count_rows: count_rows::CountRows::new(),
         }
     }
 
@@ -404,8 +434,30 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
             }
             return Ok(());
         }
-        Box::pin(self.count_explanation(hub, canonical)).await?;
+        Box::pin(self.count_explanation_from_canonical(hub, canonical, key)).await?;
         Ok(())
+    }
+
+    /// Reuse only an already retained, fully authenticated immutable body.
+    /// Eviction is a miss; a certificate alone does not supply this projection.
+    pub(in crate::hub) async fn completed_count_explanation(
+        &mut self,
+        hub: HubId,
+        supplied: &stock::read::OperationRecord,
+    ) -> Result<Option<Arc<HubCountExplanationReceipt>>, SafeError> {
+        let (_, key) = self
+            .canonical_count_key(hub, supplied, "correction_count_explain")
+            .await?;
+        let Some(entry) = self.proofs.completed.get(&key) else {
+            return Ok(None);
+        };
+        if !matches!(self.proofs.verified.get(&key), Some(Certificate::Count)) {
+            return Err(corrupt_storage());
+        }
+        match &entry.receipt {
+            Receipt::Count(receipt) => Ok(Some(Arc::clone(receipt))),
+            _ => Err(corrupt_storage()),
+        }
     }
 
     pub(in crate::hub) async fn count_explanation(
@@ -416,6 +468,17 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
         let (op, key) = self
             .canonical_count_key(hub, &supplied, "correction_count_explain")
             .await?;
+        self.count_explanation_from_canonical(hub, op, key).await
+    }
+
+    // Both callers pass the canonical pair immediately after its full header,
+    // mode, seal and parent checks; no writer or parent transition intervenes.
+    async fn count_explanation_from_canonical(
+        &mut self,
+        hub: HubId,
+        op: stock::read::OperationRecord,
+        key: Key,
+    ) -> Result<Arc<HubCountExplanationReceipt>, SafeError> {
         if let Some(entry) = self.proofs.completed.get(&key) {
             #[cfg(test)]
             {
@@ -464,7 +527,7 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
             }
             return Ok(());
         }
-        Box::pin(self.count_classification(hub, canonical)).await?;
+        Box::pin(self.count_classification_from_canonical(hub, canonical, key)).await?;
         Ok(())
     }
     pub(in crate::hub) async fn count_classification(
@@ -475,6 +538,15 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
         let (op, key) = self
             .canonical_count_key(hub, &supplied, "correction_count_classify")
             .await?;
+        self.count_classification_from_canonical(hub, op, key).await
+    }
+
+    async fn count_classification_from_canonical(
+        &mut self,
+        hub: HubId,
+        op: stock::read::OperationRecord,
+        key: Key,
+    ) -> Result<Arc<HubCountClassificationReceipt>, SafeError> {
         if let Some(entry) = self.proofs.completed.get(&key) {
             #[cfg(test)]
             {
@@ -567,12 +639,16 @@ enum Payload<'a> {
     Actual(&'a HubActualReviewReceipt),
     Count(&'a HubCountExplanationReceipt),
     Classification(&'a HubCountClassificationReceipt),
+    CountReturn(&'a HubCountReturnAssociationReceipt),
+    Return(&'a HubReturnReceipt),
 }
 fn charge_receipt(key: &Key, receipt: &Receipt) -> Option<usize> {
     match receipt {
         Receipt::Actual(receipt) => charge(key, receipt),
         Receipt::Count(receipt) => charge_payload(key, Payload::Count(receipt)),
         Receipt::Classification(receipt) => charge_payload(key, Payload::Classification(receipt)),
+        Receipt::CountReturn(receipt) => charge_payload(key, Payload::CountReturn(receipt)),
+        Receipt::Return(receipt) => charge_payload(key, Payload::Return(receipt)),
     }
 }
 fn charge_payload(key: &Key, receipt: Payload<'_>) -> Option<usize> {
@@ -592,6 +668,12 @@ fn charge_payload(key: &Key, receipt: Payload<'_>) -> Option<usize> {
     }
     let mut count = Count(0);
     let encoded = match receipt {
+        Payload::Return(receipt) => {
+            serde_json::to_writer(&mut count, &(receipt.operation.as_str(), &receipt.original))
+        }
+        Payload::CountReturn(receipt) => {
+            serde_json::to_writer(&mut count, &(receipt.operation.as_str(), &receipt.original))
+        }
         Payload::Classification(receipt) => {
             serde_json::to_writer(&mut count, &(receipt.operation.as_str(), &receipt.original))
         }
@@ -628,7 +710,9 @@ fn charge_payload(key: &Key, receipt: Payload<'_>) -> Option<usize> {
             std::mem::size_of::<Entry>()
                 + std::mem::size_of::<HubActualReviewReceipt>()
                     .max(std::mem::size_of::<HubCountExplanationReceipt>())
-                    .max(std::mem::size_of::<HubCountClassificationReceipt>()),
+                    .max(std::mem::size_of::<HubCountClassificationReceipt>())
+                    .max(std::mem::size_of::<HubCountReturnAssociationReceipt>())
+                    .max(std::mem::size_of::<HubReturnReceipt>()),
         )?
         .checked_add(2 * (std::mem::size_of::<Key>() + key.operation.len() + key.kind.len()))
         .filter(|v| *v <= PAYLOAD_BYTES)

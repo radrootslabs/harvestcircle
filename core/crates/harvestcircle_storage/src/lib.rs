@@ -41,11 +41,16 @@ pub use hub::corrections::{
     HubAdditionalQuantityReceipt, HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome,
     HubAttributionReviewOutcome, HubCorrectionFundingEvidence, HubCorrectionFundingQuery,
     HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorrectionKnownQuery,
-    HubCorrectionObservationReceipt, HubRecipientAttributionReview, HubSourceAttributionReview,
+    HubCorrectionObservationReceipt, HubRecipientAttributionReceipt, HubRecipientAttributionReview,
+    HubSourceAttributionReceipt, HubSourceAttributionReview,
 };
 pub use hub::corrections::{
     HubCountClassificationReceipt, HubCountExplanationQuery, HubCountExplanationReceipt,
-    HubCountExplanationReview, HubCountExplanationReviewOutcome,
+    HubCountExplanationReview, HubCountExplanationReviewOutcome, HubCountReturnAssociationReceipt,
+};
+pub use hub::corrections::{
+    HubCountClassificationReview, HubCountClassificationReviewOutcome,
+    HubCountReturnAssociationReview, HubCountReturnAssociationReviewOutcome,
 };
 pub use hub::corrections::{
     HubFoundCorrectionReceipt, HubFoundCorrectionReview, HubFoundCorrectionReviewBlocker,

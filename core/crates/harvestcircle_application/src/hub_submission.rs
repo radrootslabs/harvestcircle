@@ -8,8 +8,8 @@ use harvestcircle_domain::hub::{
     actuals::{ActualDuplicateLink, ActualNewDepartureCommand, ActualReportCommand},
     corrections::{
         AdditionalQuantityCommand, CorrectionObservationCommand, CountClassificationCommand,
-        CountExplanationCommand, FoundCorrectionCommand, RecipientAttributionCommand,
-        SourceAttributionCommand,
+        CountExplanationCommand, CountReturnAssociationCommand, FoundCorrectionCommand,
+        RecipientAttributionCommand, SourceAttributionCommand,
     },
     counts::{CountObserveCommand, CountPostCommand},
     departure::DepartureCommand,
@@ -66,6 +66,7 @@ pub enum HubSubmittedRequest<'a> {
     RecipientAttribution(&'a RecipientAttributionCommand),
     CountExplanation(&'a CountExplanationCommand),
     CountClassification(&'a CountClassificationCommand),
+    CountReturnAssociation(&'a CountReturnAssociationCommand),
 }
 
 /// An owned native request can move through admission without decoding an archive.
@@ -92,6 +93,7 @@ pub enum HubMutation {
     RecipientAttribution(Box<RecipientAttributionCommand>),
     CountExplanation(Box<CountExplanationCommand>),
     CountClassification(Box<CountClassificationCommand>),
+    CountReturnAssociation(Box<CountReturnAssociationCommand>),
 }
 
 impl HubMutation {
@@ -119,6 +121,9 @@ impl HubMutation {
             Self::RecipientAttribution(value) => HubSubmittedRequest::RecipientAttribution(value),
             Self::CountExplanation(value) => HubSubmittedRequest::CountExplanation(value),
             Self::CountClassification(value) => HubSubmittedRequest::CountClassification(value),
+            Self::CountReturnAssociation(value) => {
+                HubSubmittedRequest::CountReturnAssociation(value)
+            }
         }
     }
 }
@@ -147,6 +152,7 @@ impl HubSubmittedRequest<'_> {
             Self::RecipientAttribution(_) => "correction_recipient",
             Self::CountExplanation(_) => "correction_count_explain",
             Self::CountClassification(_) => "correction_count_classify",
+            Self::CountReturnAssociation(_) => "count_return_associate",
         }
     }
 
@@ -201,6 +207,7 @@ impl Serialize for HubSubmittedRequest<'_> {
             Self::RecipientAttribution(command) => command.serialize(serializer),
             Self::CountExplanation(command) => command.serialize(serializer),
             Self::CountClassification(command) => command.serialize(serializer),
+            Self::CountReturnAssociation(command) => command.serialize(serializer),
             Self::ActualReview(command) => {
                 #[derive(Serialize)]
                 struct Input<'a> {

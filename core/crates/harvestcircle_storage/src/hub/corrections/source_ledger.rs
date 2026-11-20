@@ -171,8 +171,16 @@ pub(super) async fn load_through_on(
             .plan(&context.domain(), own, op.actor, op.recorded_at)
             .map_err(|_| corrupt_storage())?;
         let material = [HubSubmittedMaterial::SourceAttribution(Box::new(
+            // Captured source semantics retain their published representation.
             context.material(own),
         ))];
+        super::row_budget::require_prior_room_on(
+            tx,
+            hub,
+            command.trace,
+            command.expected_stock_revision,
+        )
+        .await?;
         let admission = crate::hub::submission::verify_recorded_capture_on(
             tx,
             hub,

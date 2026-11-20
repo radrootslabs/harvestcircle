@@ -6,7 +6,7 @@ use harvestcircle_domain::hub::{
         OriginalSourceAttribution, RecipientAttributionCommand, RecipientAttributionCorrection,
         SourceAttributionCommand, SourceAttributionCorrection,
     },
-    reference::{ReferenceCatalog, SourceAttribution},
+    reference::{ReferenceCatalog, ReferenceRecord, ReferenceValue, SourceAttribution},
 };
 pub(super) mod registry;
 #[cfg(test)]
@@ -28,6 +28,9 @@ pub struct HubSourceAttributionReview {
     pub history: Vec<SourceAttributionCorrection>,
     /// Every canonical source identity, retaining distinct IDs and issuers.
     pub known_sources: Vec<SourceAttribution>,
+    /// Current issuer heads at this exact catalog cut for display. They do not
+    /// rewrite original issuer snapshots or grant source or party authority.
+    pub known_source_issuers: Vec<ReferenceRecord>,
     pub affected: Vec<AttributionAffectedDeparture>,
     pub issued_versions:
         Vec<harvestcircle_domain::hub::corrections::AttributionAffectedIssuedVersion>,
@@ -113,6 +116,22 @@ impl Database {
                     ))
                     .await?;
                     context.uncertain = cut.uncertainty.uncertain_intent;
+                    let mut known_source_issuers = std::collections::BTreeMap::new();
+                    for source in &context.known_sources {
+                        if let SourceAttribution::Referenced { source, .. } = source
+                            && let Some(issuer) = source.issuer
+                        {
+                            let issuer = context
+                                .catalog
+                                .get(issuer)
+                                .map_err(|_| corrupt_storage())?
+                                .clone();
+                            if !matches!(&issuer.value, ReferenceValue::Party { .. }) {
+                                return Err(corrupt_storage());
+                            }
+                            known_source_issuers.insert(issuer.id, issuer);
+                        }
+                    }
                     let mut review = HubSourceAttributionReview {
                         revision: cut.revision,
                         catalog_revision: cut.catalog.revision(),
@@ -120,6 +139,7 @@ impl Database {
                         original: context.original.clone(),
                         history: context.history.clone(),
                         known_sources: context.known_sources.clone(),
+                        known_source_issuers: known_source_issuers.into_values().collect(),
                         affected: context.affected.clone(),
                         issued_versions: context.issued_versions.clone(),
                         uncertain_intent: cut.uncertainty.uncertain_intent,

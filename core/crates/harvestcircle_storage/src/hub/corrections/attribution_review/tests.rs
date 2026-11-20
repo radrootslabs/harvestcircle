@@ -15,6 +15,7 @@ use harvestcircle_domain::{
 };
 use sqlx::{AssertSqlSafe, Connection};
 mod actual_tests;
+mod count_tests;
 mod origin_tests;
 
 fn at(n: i64) -> UnixTimestamp {
@@ -125,6 +126,20 @@ async fn source_registry_keeps_same_code_distinct_issuers_and_reuse_without_muta
         .await
         .unwrap();
     assert_eq!(review.known_sources.len(), 2);
+    assert_eq!(
+        review
+            .known_source_issuers
+            .iter()
+            .map(|issuer| issuer.id)
+            .collect::<Vec<_>>(),
+        vec![id(3), id(4)],
+    );
+    assert!(
+        review
+            .known_source_issuers
+            .iter()
+            .all(|issuer| matches!(&issuer.value, ReferenceValue::Party { .. }))
+    );
     assert!(
         review
             .known_sources
@@ -386,11 +401,44 @@ async fn owner_cuts_used_id_reference_and_reference_clock_are_checked_without_mu
     let command = source_command(&db, command.trace, SourceAttribution::Unknown).await;
     let before = crate::hub::custody::tests::material(&fixture).await;
     assert_eq!(
-        db.hub_source_attribution_review(owner(), operation(1900), command, at(240))
+        db.hub_source_attribution_review(owner(), operation(1900), command.clone(), at(240))
             .await
             .unwrap()
             .outcome,
         HubAttributionReviewOutcome::Blocked(AttributionError::InvalidHistory)
+    );
+    let current = db
+        .hub_source_attribution_review(owner(), operation(1900), command.clone(), at(260))
+        .await
+        .unwrap();
+    assert!(matches!(
+        &current.outcome,
+        HubAttributionReviewOutcome::Candidate(_)
+    ));
+    assert_eq!(
+        current.original.source.issuer.as_ref(),
+        receipts[0].original.trace.source_issuer.as_ref(),
+    );
+    let issuer = current
+        .known_source_issuers
+        .iter()
+        .find(|record| record.id == id(3))
+        .unwrap();
+    assert_eq!(
+        issuer.value,
+        ReferenceValue::Party {
+            label: HubLabel::new("Later party label, immutable old issuer remains").unwrap(),
+        }
+    );
+    assert_ne!(Some(issuer), current.original.source.issuer.as_ref());
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+    let db = fixture.open().await;
+    assert_eq!(
+        db.hub_source_attribution_review(owner(), operation(1900), command, at(260),)
+            .await
+            .unwrap(),
+        current
     );
     assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
     db.close().await.unwrap();

@@ -895,3 +895,7 @@ fn audit_provenance(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(in crate::hub) use tests::trace_policy_fixture as count_return_trace_policy_fixture;
+#[cfg(test)]
+pub(in crate::hub) use tests::trace_two_returns_fixture as count_return_trace_two_returns_fixture;

@@ -12,6 +12,8 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 pub const LOCAL_OUTPUT_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const TRACE_OUTPUT_SCOPE: &str = "One recorded population at the stated stock and catalog revisions. Includes all retained current positions and actual departure lines in this local snapshot, not a complete action-history export. Unknown or possible origin, unrecorded activity and activity outside this desktop cannot be ruled out. Saving or printing does not establish external delivery or acknowledgement.";
 
+mod count_interpretations;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LocalOutputError {
     InvalidSnapshot,
@@ -271,6 +273,17 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
     out.field(original_label, &balance.original.value().to_string())?;
     out.field("On hand", &balance.on_hand.value().to_string())?;
     out.field("Actual departed", &balance.departed.value().to_string())?;
+    if snapshot.count_interpretations.is_some() {
+        out.field(
+            "Original physical count shortage",
+            &balance.gross_counted_loss.value().to_string(),
+        )?;
+        out.field(
+            "Current explained count shortage",
+            &balance.explained_count_loss.value().to_string(),
+        )?;
+        out.paragraph("Explained count shortage is included in interpreted already-taken departures. It is not an additional physical outflow.")?;
+    }
     if balance.actual_departed.value() > 0 {
         out.field(
             "Reconciled already-taken departures",
@@ -492,7 +505,14 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
         out.field("Departure observation", event.observation.as_str())?;
     }
     if !snapshot.count_losses.is_empty() {
-        out.heading("Retained count shortages; loss time and cause unknown")?;
+        out.heading(if snapshot.count_interpretations.is_some() {
+            "Original count shortages; later interpretations remain separate"
+        } else {
+            "Retained count shortages; loss time and cause unknown"
+        })?;
+        if snapshot.count_interpretations.is_some() {
+            out.paragraph("As originally recorded: loss time and cause unknown. Later explanations are separate evidence and do not rewrite the original count.")?;
+        }
         for loss in &snapshot.count_losses {
             out.field("Reconciliation", &loss.reconciliation.to_hex())?;
             out.field("Original operation", &operation_text(loss.operation))?;
@@ -507,6 +527,7 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
             out.field("Review basis", loss.reason.as_str())?;
         }
     }
+    count_interpretations::render(&mut out, snapshot)?;
     LocalOutput::finish(
         out,
         format!(

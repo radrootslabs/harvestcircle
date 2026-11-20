@@ -7,7 +7,12 @@ mod contract;
 mod dto;
 mod host_runtime;
 mod hub_actuals;
+mod hub_count_interpretations;
 mod hub_counts;
+pub use hub_count_interpretations::{
+    HubCountClassificationMeaningDto, HubCountExplanationMeaningDto,
+    HubCountInterpretationAccountDto, HubCountInterpretationsDto, HubCountReturnAssociationDto,
+};
 mod hub_departure;
 mod hub_dispatch;
 mod hub_dispatch_input;
@@ -160,7 +165,7 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0-alpha");
         assert_eq!(super::FFI_CONTRACT_ID, "harvestcircle-desktop-ffi-v5");
         assert_eq!(super::FFI_CONTRACT_MAJOR, 5);
-        assert_eq!(super::FFI_CONTRACT_MINOR, 29);
+        assert_eq!(super::FFI_CONTRACT_MINOR, 30);
         assert_eq!(super::SNAPSHOT_SCHEMA_VERSION, 1);
         assert_eq!(
             super::PRODUCT_COORDINATE_DIGEST,

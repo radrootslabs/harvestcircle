@@ -27,6 +27,27 @@ pub(super) struct Context {
 }
 
 impl Context {
+    pub fn submitted_material(
+        &self,
+        operation: HubRecordId,
+    ) -> Result<Vec<harvestcircle_application::hub_submission::HubSubmittedMaterial>, SafeError>
+    {
+        let mut material = vec![
+            harvestcircle_application::hub_submission::HubSubmittedMaterial::FoundCorrection(
+                Box::new(self.material(operation)),
+            ),
+        ];
+        super::count_return_scope::append_material(
+            &mut material,
+            self.funding.return_scope.as_ref(),
+            operation,
+            self.hub,
+            self.stock_revision,
+            self.catalog.revision(),
+        )?;
+        Ok(material)
+    }
+
     pub fn material(
         &self,
         operation: HubRecordId,

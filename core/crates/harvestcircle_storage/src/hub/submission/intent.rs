@@ -57,6 +57,7 @@ pub(super) fn hash(
         HubSubmittedRequest::RecipientAttribution(c) => c.fingerprint(hub, actor, id),
         HubSubmittedRequest::CountExplanation(c) => c.fingerprint(hub, actor, id),
         HubSubmittedRequest::CountClassification(c) => c.fingerprint(hub, actor, id),
+        HubSubmittedRequest::CountReturnAssociation(c) => c.fingerprint(hub, actor, id),
         HubSubmittedRequest::CorrectionObservation(c) => c
             .fingerprint(hub, actor, id)
             .map_err(crate::hub::corrections::error)?,

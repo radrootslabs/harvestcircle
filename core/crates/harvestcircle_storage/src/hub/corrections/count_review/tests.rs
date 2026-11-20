@@ -43,6 +43,87 @@ async fn world_with_history(
     split: bool,
     sibling_count: bool,
 ) -> (Fixture, Database, HubCountExplanationQuery) {
+    world_with_history_recipient(split, sibling_count, 3).await
+}
+
+pub(in crate::hub) async fn world_with_recipient(
+    recipient: u8,
+) -> (Fixture, Database, HubCountExplanationQuery) {
+    world_with_history_recipient(false, false, recipient).await
+}
+
+pub(in crate::hub) async fn world_with_recipient_clock(
+    recipient: u8,
+    time_scale: i64,
+) -> (Fixture, Database, HubCountExplanationQuery) {
+    world_with_history_recipient_clock(false, false, recipient, time_scale).await
+}
+
+pub(in crate::hub) async fn world_with_shortage(
+    recipient: u8,
+    missing: u32,
+    reported: u32,
+) -> (Fixture, Database, HubCountExplanationQuery) {
+    world_with_quantities(false, false, recipient, 1, (missing, 0, reported)).await
+}
+
+pub(in crate::hub) async fn explained_world() -> (
+    Fixture,
+    Database,
+    HubSubmissionScope,
+    Box<super::super::count_record::HubCountExplanationReceipt>,
+) {
+    let (fixture, db, command) = world_with_recipient(5).await;
+    let runtime = db.hub_runtime_session().await.unwrap().unwrap();
+    let scope = HubSubmissionScope {
+        runtime: runtime.runtime,
+        generation: runtime.generation,
+        actor: runtime.actor.unwrap(),
+    };
+    let crate::HubMutationResult::CountExplained(receipt) = db
+        .submit_hub_mutation(
+            scope,
+            operation(801),
+            HubMutation::CountExplanation(Box::new(command)),
+            at(200),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("ordinary native explanation")
+    };
+    (fixture, db, scope, receipt)
+}
+
+async fn world_with_history_recipient(
+    split: bool,
+    sibling_count: bool,
+    recipient: u8,
+) -> (Fixture, Database, HubCountExplanationQuery) {
+    world_with_history_recipient_clock(split, sibling_count, recipient, 1).await
+}
+
+async fn world_with_history_recipient_clock(
+    split: bool,
+    sibling_count: bool,
+    recipient: u8,
+    time_scale: i64,
+) -> (Fixture, Database, HubCountExplanationQuery) {
+    world_with_quantities(split, sibling_count, recipient, time_scale, (20, 18, 1)).await
+}
+
+async fn world_with_quantities(
+    split: bool,
+    sibling_count: bool,
+    recipient: u8,
+    time_scale: i64,
+    quantities: (u32, u32, u32),
+) -> (Fixture, Database, HubCountExplanationQuery) {
+    assert!(time_scale > 0);
+    assert!(time_scale == 1 || (!split && !sibling_count));
+    // Only the explicit large native fixture needs a wider pre-count window.
+    // Existing worlds retain their exact seconds and ordinary native commands.
+    let at = |n: i64| at(n.checked_mul(time_scale).unwrap());
     let fixture = Fixture::new();
     let db = fixture.open().await;
     let catalog = setup(&db).await;
@@ -62,6 +143,7 @@ async fn world_with_history(
         actor: owner(),
     };
     let mut input = command(&catalog);
+    input.packs = packs(quantities.0);
     input.occurred = Occurrence::Known(at(40));
     let crate::HubMutationResult::Received(intake) = db
         .submit_hub_mutation(
@@ -88,7 +170,7 @@ async fn world_with_history(
                 expected_catalog_revision: group.catalog_revision,
                 group: group.group.id,
                 expected_group_revision: group.group.revision,
-                counted_packs: packs(18),
+                counted_packs: packs(quantities.1),
                 cutoff: Occurrence::Known(at(110)),
                 observation: note(),
             })),
@@ -178,8 +260,8 @@ async fn world_with_history(
             operation(4),
             HubMutation::ActualReport(Box::new(ActualReportCommand {
                 variant: Some(id(2)),
-                recipient: Some(id(3)),
-                packs: Some(packs(1)),
+                recipient: Some(id(recipient)),
+                packs: Some(packs(quantities.2)),
                 sources: ActualReportSources::EstablishedClaim(ReportedActualSource {
                     trace: intake.original.trace.id,
                     group: Some(group.group.id),
@@ -195,16 +277,27 @@ async fn world_with_history(
     else {
         panic!("native raw report")
     };
-    let current = db.hub_group(owner(), group.group.id).await.unwrap();
+    // A fully counted-out group is not a current physical selection. Capture
+    // the genuine stock cut without asking the group-selection API to revive it.
+    let (revision, catalog_revision) = if quantities.1 == 0 {
+        let current = db
+            .hub_stock_page(owner(), crate::hub::stock::tests::query())
+            .await
+            .unwrap();
+        (current.revision, current.catalog_revision)
+    } else {
+        let current = db.hub_group(owner(), group.group.id).await.unwrap();
+        (current.revision, current.catalog_revision)
+    };
     let query = HubCountExplanationQuery {
         facts: CountExplanationFacts {
             report: report.original.id,
             count_reconciliation: posted.original.id,
-            expected_stock_revision: current.revision,
-            expected_catalog_revision: current.catalog_revision,
+            expected_stock_revision: revision,
+            expected_catalog_revision: catalog_revision,
             expected_prior: None,
-            packs: packs(1),
-            recipient: id(3),
+            packs: packs(quantities.2),
+            recipient: id(recipient),
             occurred: Occurrence::Known(at(70)),
             source_evidence: note(),
             quantity_evidence: note(),

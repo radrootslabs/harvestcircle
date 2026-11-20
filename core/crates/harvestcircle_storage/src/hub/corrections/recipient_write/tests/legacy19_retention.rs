@@ -204,7 +204,10 @@ async fn drive_native_observed(
     HubSubmissionScope,
 ) {
     let mut cuts = Vec::new();
-    assert!(matches!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 19 | 20));
+    assert!(matches!(
+        crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION,
+        19 | 20 | 22
+    ));
     let (before, target, _) =
         crate::hub::corrections::projection_native_tests::actual_debit(db).await;
     let target_id = crate::hub::actuals::common::operation_id(&target).unwrap();

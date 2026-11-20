@@ -126,6 +126,9 @@ fn snapshot() -> TraceSnapshot {
     let record = fixture();
     let line = &record.versions[0].material.lines[0];
     TraceSnapshot {
+        count_interpretations: None,
+        count_return_associations: Vec::new(),
+        count_return_uncertain: false,
         source_corrections: Vec::new(),
         recipient_corrections: Vec::new(),
         quantity_corrections: vec![],
@@ -298,17 +301,36 @@ fn trace_output_preserves_count_shortages_without_inventing_departure_and_escape
         actor: value.trace.actor,
         reason: note("Reviewed <script>unsafe()</script> & counted"),
     });
-    let output = trace_output(&value).unwrap();
-    assert!(output.html.contains("Unexplained count shortage"));
-    assert!(output.html.contains("loss time and cause unknown"));
-    assert!(output.html.contains("No recorded actual departure"));
-    assert!(
-        output
-            .html
-            .contains("Reviewed &lt;script&gt;unsafe()&lt;/script&gt; &amp; counted")
-    );
-    assert!(!output.html.contains("<script>"));
-    assert_eq!(output, trace_output(&value).unwrap());
+    for count_aware in [false, true] {
+        if count_aware {
+            value.count_interpretations = Some(
+                harvestcircle_domain::hub::actuals::ActualKnownCountInventory::new(
+                    harvestcircle_domain::hub::actuals::ActualKnownInterpretations {
+                        hub: value.hub,
+                        stock_revision: value.stock_revision,
+                        catalog_revision: value.catalog_revision,
+                        latest_recorded_at: at(200),
+                        records: Vec::new(),
+                    },
+                )
+                .unwrap(),
+            );
+        }
+        let output = trace_output(&value).unwrap();
+        assert!(output.html.contains("Unexplained count shortage"));
+        assert!(
+            output.html.contains("loss time and cause unknown"),
+            "original uncertainty remains with count-aware mode={count_aware}"
+        );
+        assert!(output.html.contains("No recorded actual departure"));
+        assert!(
+            output
+                .html
+                .contains("Reviewed &lt;script&gt;unsafe()&lt;/script&gt; &amp; counted")
+        );
+        assert!(!output.html.contains("<script>"));
+        assert_eq!(output, trace_output(&value).unwrap());
+    }
 }
 
 #[test]

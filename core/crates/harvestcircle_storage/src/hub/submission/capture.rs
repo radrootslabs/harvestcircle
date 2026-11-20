@@ -1,7 +1,22 @@
 use super::*;
+use crate::hub::actuals::proofs::OriginalReader;
+
+#[cfg(test)]
+mod tests;
 
 pub(super) async fn capture_on(
     tx: &mut ServiceSqliteTransaction<'_>,
+    actor: PublicKey,
+    scope: HubSubmissionScope,
+    operation: &DurableRequestId,
+    request: HubSubmittedRequest<'_>,
+) -> Result<ArchivedHubSubmission, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    capture_with_proofs_on(&mut reader, actor, scope, operation, request).await
+}
+
+async fn capture_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
     actor: PublicKey,
     scope: HubSubmissionScope,
     operation: &DurableRequestId,
@@ -46,7 +61,7 @@ pub(super) async fn capture_on(
     }
     let hub = reference::authorize_on(tx, actor).await?;
     let catalog = reference::load_catalog_on(tx, hub.id()).await?;
-    let state = stock::read::state_on(tx, hub.id()).await?;
+    let state = stock::read::state_with_proofs_on(tx, hub.id()).await?;
     if let Some((expected_stock, expected_catalog)) = targets::expected_versions(&request) {
         if expected_catalog != catalog.revision()
             || expected_stock.is_some_and(|revision| revision != state.revision)
@@ -67,29 +82,22 @@ pub(super) async fn capture_on(
     }
     let mut material = Vec::new();
     match &request {
+        HubSubmittedRequest::CountReturnAssociation(command) => {
+            material.push(
+                capture_count_return_association_material(tx, hub.id(), actor, operation, command)
+                    .await?,
+            );
+        }
         HubSubmittedRequest::CountExplanation(command) => {
-            let captured = crate::hub::corrections::capture_count_explanation_on(
-                tx,
-                hub.id(),
-                actor,
-                operation,
-                command,
-            )
-            .await?;
-            material.push(HubSubmittedMaterial::CountExplanation(Box::new(captured)));
+            material.push(
+                capture_count_explanation_material(tx, hub.id(), actor, operation, command).await?,
+            );
         }
         HubSubmittedRequest::CountClassification(command) => {
-            let captured = Box::pin(crate::hub::corrections::capture_count_classification_on(
-                tx,
-                hub.id(),
-                actor,
-                operation,
-                command,
-            ))
-            .await?;
-            material.push(HubSubmittedMaterial::CountClassification(Box::new(
-                captured,
-            )));
+            material.push(
+                capture_count_classification_material(tx, hub.id(), actor, operation, command)
+                    .await?,
+            );
         }
         HubSubmittedRequest::RecipientAttribution(command) => {
             let captured = Box::pin(crate::hub::corrections::capture_recipient_on(
@@ -130,7 +138,7 @@ pub(super) async fn capture_on(
             let captured =
                 crate::hub::corrections::capture_found_on(tx, hub.id(), actor, operation, command)
                     .await?;
-            material.push(HubSubmittedMaterial::FoundCorrection(Box::new(captured)));
+            material.extend(captured);
         }
         HubSubmittedRequest::ActualReview(command) => {
             let context =
@@ -154,6 +162,11 @@ pub(super) async fn capture_on(
             let context =
                 crate::hub::custody::returns::context::load_on(tx, hub.id(), command).await?;
             let id = crate::hub::custody::returns::identities(operation)?.returned;
+            if let Some(scope) = &context.count_scope {
+                material.push(HubSubmittedMaterial::ReturnScope(Box::new(
+                    scope.material(id)?,
+                )));
+            }
             material.push(HubSubmittedMaterial::Return(Box::new(HubSubmittedReturn {
                 id,
                 departure: context.departure,
@@ -199,7 +212,7 @@ pub(super) async fn capture_on(
     }
     if let Some(id) = targets.hold {
         let trace:Option<Vec<u8>>=sqlx::query_scalar("SELECT substr(trace_id,1,17) FROM hub_treatment_records WHERE record_id=? AND kind='hold_place' LIMIT 1")
-            .bind(id.as_bytes().as_slice()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?;
+            .bind(id.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(|_|storage_unavailable())?;
         let trace = HubRecordId::from_bytes(
             trace
                 .ok_or_else(stock::invalid_input)?
@@ -262,7 +275,7 @@ pub(super) async fn capture_on(
     if let Some(id) = targets.work {
         let value = handling::read::work_on(tx, hub.id(), id).await?;
         let rows=sqlx::query("SELECT substr(group_id,1,17) AS group_id FROM hub_group_work WHERE work_id=? AND progress='pending' AND scoped_packs>0 ORDER BY group_id LIMIT 257")
-            .bind(id.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+            .bind(id.as_bytes().as_slice()).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
         if rows.len() > harvestcircle_domain::hub::movement::HUB_REQUIREMENT_GROUPS {
             return Err(corrupt_storage());
         }
@@ -348,4 +361,62 @@ pub(in crate::hub) fn capture_references(
             .map(|r| HubSubmittedMaterial::Reference(Box::new(r))),
     );
     Ok(())
+}
+
+// Construct large dedicated count captures outside the common capture frame.
+// These values remain descriptive; the owner retains authorization and final encoding.
+type CountMaterialFuture<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<HubSubmittedMaterial, SafeError>> + Send + 'a>,
+>;
+
+fn capture_count_return_association_material<'a, 'connection>(
+    tx: &'a mut ServiceSqliteTransaction<'connection>,
+    hub: harvestcircle_domain::hub::HubId,
+    actor: PublicKey,
+    operation: &'a DurableRequestId,
+    command: &'a harvestcircle_domain::hub::corrections::CountReturnAssociationCommand,
+) -> CountMaterialFuture<'a> {
+    Box::pin(async move {
+        let captured = crate::hub::corrections::count_return_context::capture_on(
+            tx, hub, actor, operation, command,
+        )
+        .await?;
+        Ok(HubSubmittedMaterial::CountReturnAssociation(Box::new(
+            captured,
+        )))
+    })
+}
+
+fn capture_count_explanation_material<'a, 'connection>(
+    tx: &'a mut ServiceSqliteTransaction<'connection>,
+    hub: harvestcircle_domain::hub::HubId,
+    actor: PublicKey,
+    operation: &'a DurableRequestId,
+    command: &'a harvestcircle_domain::hub::corrections::CountExplanationCommand,
+) -> CountMaterialFuture<'a> {
+    Box::pin(async move {
+        let captured = crate::hub::corrections::capture_count_explanation_on(
+            tx, hub, actor, operation, command,
+        )
+        .await?;
+        Ok(HubSubmittedMaterial::CountExplanation(Box::new(captured)))
+    })
+}
+
+fn capture_count_classification_material<'a, 'reader, 'connection>(
+    tx: &'a mut OriginalReader<'reader, 'connection>,
+    hub: harvestcircle_domain::hub::HubId,
+    actor: PublicKey,
+    operation: &'a DurableRequestId,
+    command: &'a harvestcircle_domain::hub::corrections::CountClassificationCommand,
+) -> CountMaterialFuture<'a> {
+    Box::pin(async move {
+        let captured = crate::hub::corrections::capture_count_classification_with_proofs_on(
+            tx, hub, actor, operation, command,
+        )
+        .await?;
+        Ok(HubSubmittedMaterial::CountClassification(Box::new(
+            captured,
+        )))
+    })
 }

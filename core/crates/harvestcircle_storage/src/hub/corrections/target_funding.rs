@@ -82,6 +82,7 @@ pub(super) struct LoadedFunding {
     pub family: CorrectedDepartureFamily,
     pub quantity: DepartureQuantityAccount,
     pub debits: Vec<PhysicalDebitFunding>,
+    pub return_scope: Option<harvestcircle_application::hub_submission::HubSubmittedReturnScope>,
 }
 
 pub(super) async fn load_on(
@@ -102,6 +103,7 @@ pub(super) async fn load_with_proofs_on(
     group: HubRecordId,
     cut: HubRevision,
 ) -> Result<LoadedFunding, SafeError> {
+    let scope = super::count_return_scope::VerifiedScope::for_cut_on(tx, hub, cut).await?;
     let line = Box::pin(quantity::original_on(tx, hub, target, group, cut)).await?;
     let history = quantity::history_from_original_on(tx, hub, target, group, cut, &line).await?;
     // Scalar metadata alone remains insufficient. Complete purpose-sealed
@@ -111,7 +113,18 @@ pub(super) async fn load_with_proofs_on(
     let additional =
         super::physical_balance::additional_debits_on(tx, hub, &line, &history.amendments, cut)
             .await?;
-    let returns = Box::pin(funding::returns_on(tx, hub, &line, cut)).await?;
+    let returns = Box::pin(funding::returns_with_scope_on(
+        tx,
+        hub,
+        &line,
+        cut,
+        scope.as_ref(),
+    ))
+    .await?;
+    let return_scope = scope
+        .as_ref()
+        .map(|scope| scope.material(line.original.operation))
+        .transpose()?;
     let changes = history.amendments.clone();
     let quantity = history.with_verified_returns(returns.total)?;
     let op = stock::read::operation_on(tx, hub, target)
@@ -255,5 +268,6 @@ pub(super) async fn load_with_proofs_on(
         family,
         quantity,
         debits,
+        return_scope,
     })
 }

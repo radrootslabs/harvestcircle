@@ -68,7 +68,7 @@ pub(super) async fn apply_on(
         .map_err(error)?;
     ensure_capacity_on(tx, &plan).await?;
     let population = plan.population();
-    let result_hash = return_result_digest(&hash, &command, &context.domain(hub.id()), &plan)
+    let inner_result_hash = return_result_digest(&hash, &command, &context.domain(hub.id()), &plan)
         .map_err(|_| corrupt_storage())?;
     let population_hash =
         return_population_digest(&hash, hub.id(), plan.catalog_revision, ids, &population)
@@ -83,7 +83,20 @@ pub(super) async fn apply_on(
         result: ids.returned,
         recorded_at: now,
     };
+    let native_mode = crate::hub::corrections::return_mode::for_write_on(
+        tx,
+        hub.id(),
+        &op,
+        &command,
+        context.count_scope.as_ref(),
+        inner_result_hash,
+    )
+    .await?;
+    let result_hash = native_mode
+        .map(|mode| mode.result)
+        .unwrap_or(inner_result_hash);
     handling::write::insert_operation_on(tx, hub.id(), &op).await?;
+    crate::hub::corrections::return_mode::persist_on(tx, hub.id(), &op, native_mode).await?;
     stock::write::persist_source_on(tx, hub, &operation, &population, ids.source).await?;
     stock::write::insert_population_on(tx, &operation, &population, ids.group).await?;
     let (resolution, reason) = super::resolution(&plan.linkage.resolution);

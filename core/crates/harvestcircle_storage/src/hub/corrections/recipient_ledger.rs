@@ -158,6 +158,21 @@ pub(super) async fn load_through_with_proofs_on(
         let material = [HubSubmittedMaterial::RecipientAttribution(Box::new(
             context.material(own),
         ))];
+        for trace in context
+            .original
+            .populations
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            super::row_budget::require_prior_room_on(
+                tx,
+                hub,
+                trace,
+                command.expected_stock_revision,
+            )
+            .await?;
+        }
         let admission = crate::hub::submission::verify_recorded_capture_on(
             tx,
             hub,

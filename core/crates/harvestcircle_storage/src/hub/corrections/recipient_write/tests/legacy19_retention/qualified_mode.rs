@@ -3,6 +3,59 @@ use super::*;
 mod retain20;
 
 #[tokio::test]
+async fn native22_heavy_disposable_composition_keeps_full_funding_and_cold_originals_on_default_stack()
+ {
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let (expected, _, _) = Box::pin(drive_native_observed(&db, false)).await;
+    let actual = db
+        .hub_actual_review_operation(owner(), operation(81))
+        .await
+        .unwrap()
+        .unwrap();
+    let crate::HubActualReviewOriginal::Departure(plan) = actual.original else {
+        panic!("physical original")
+    };
+    let evidence = db
+        .hub_correction_target_funding(
+            owner(),
+            crate::HubCorrectionFundingQuery {
+                target_operation: operation(81),
+                original_group: plan.reduction.before.id,
+                expected_stock_revision: None,
+                expected_catalog_revision: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(evidence.quantity.effective().value(), 0);
+    assert_eq!(evidence.debits.len(), 2);
+    assert_eq!(
+        evidence
+            .debits
+            .iter()
+            .map(|d| d.recovered().value())
+            .sum::<u32>(),
+        4
+    );
+    assert!(
+        evidence
+            .debits
+            .iter()
+            .all(|d| d.available().unwrap().value() == 0)
+    );
+    assert_eq!(db.metadata().state_schema_version().get(), 22);
+    db.close().await.unwrap();
+    for _ in 0..2 {
+        let db = fixture.open().await;
+        let before = crate::hub::custody::tests::material(&fixture).await;
+        assert_eq!(Box::pin(native_baseline(&db)).await, expected);
+        assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+        db.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn historical_physical_quantities_keep_exact_original_and_additional_found_debits_at_every_cut()
  {
     let fixture = Fixture::new();
@@ -166,9 +219,9 @@ async fn link(
 }
 
 #[tokio::test]
-async fn native20_zero_quantity_prior_unknown_current_recipients_and_source_changes_keep_link_cut_originals()
+async fn native22_zero_quantity_prior_unknown_current_recipients_and_source_changes_keep_link_cut_originals()
  {
-    assert_eq!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 20);
+    assert_eq!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 22);
     let fixture = Fixture::new();
     let db = fixture.open().await;
     let (_, cuts, scope) = Box::pin(drive_native_observed(&db, true)).await;

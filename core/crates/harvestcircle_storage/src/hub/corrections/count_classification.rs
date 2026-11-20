@@ -265,7 +265,7 @@ pub(super) async fn current_on(
     command: &CountClassificationCommand,
     except: Option<&DurableRequestId>,
 ) -> Result<Context, SafeError> {
-    let state = stock::read::state_on(tx, hub).await?;
+    let state = stock::read::state_with_proofs_on(tx, hub).await?;
     let catalog = reference::load_catalog_on(tx, hub).await?;
     if state.revision != command.expected_stock_revision
         || catalog.revision() != command.expected_catalog_revision
@@ -300,8 +300,20 @@ pub(super) async fn current_on(
         uncertain_submissions: uncertain.uncertain_intent,
     })
 }
+#[cfg(test)]
 pub(in crate::hub) async fn capture_on(
     tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    actor: PublicKey,
+    operation: &DurableRequestId,
+    command: &CountClassificationCommand,
+) -> Result<HubSubmittedCountClassification, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    capture_with_proofs_on(&mut reader, hub, actor, operation, command).await
+}
+
+pub(in crate::hub) async fn capture_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     actor: PublicKey,
     operation: &DurableRequestId,
@@ -311,8 +323,7 @@ pub(in crate::hub) async fn capture_on(
         return Err(stock::invalid_input());
     }
     reference::validate_basis_on(tx, hub).await?;
-    let mut reader = OriginalReader::new(tx);
-    let context = Box::pin(current_on(&mut reader, hub, command, None)).await?;
+    let context = Box::pin(current_on(tx, hub, command, None)).await?;
     let own = crate::hub::actuals::common::operation_id(operation)?;
     command
         .plan(&context.domain(), own, actor, context.facts.latest)

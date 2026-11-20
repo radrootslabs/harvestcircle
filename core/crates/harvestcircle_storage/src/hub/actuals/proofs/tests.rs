@@ -10,6 +10,12 @@ use harvestcircle_domain::SafeErrorCode;
 use sqlx::{AssertSqlSafe, Connection};
 mod branching;
 mod certificates;
+mod count_history;
+mod count_prefix;
+mod count_rows;
+mod count_state;
+mod counts;
+mod returns;
 
 async fn world() -> (
     Fixture,

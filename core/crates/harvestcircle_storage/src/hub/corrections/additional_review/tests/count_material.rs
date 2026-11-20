@@ -10,11 +10,18 @@ async fn count_inventory_encoding_is_explicit_and_keeps_physical_material_unchan
                 let hub = reference::authorize_on(tx, owner()).await?.id();
                 let mut context = super::super::load_on(tx, hub, &command, None).await?;
                 let own = crate::hub::actuals::common::operation_id(&operation(1900))?;
+                assert!(context.count_aware);
+                let current = context.submitted_material(own)?;
+                let return_scope = context
+                    .return_scope
+                    .take()
+                    .expect("native22 scope even when empty");
+                context.count_aware = false;
                 let old = context.submitted_material(own)?;
                 assert_eq!(old.len(), 1);
                 let old_bytes = serde_json::to_vec(&old).unwrap();
-                // Encoding probe only: this does not change the native mode, post a
-                // count or claim a native21 roundtrip in the physical20 producer.
+                // Isolated encoding probe: neither branch selects a native mode
+                // or authenticates an original. Current22 retains both extensions.
                 context.count_aware = true;
                 let encoded = context.submitted_material(own)?;
                 assert_eq!(encoded.len(), 2);
@@ -36,6 +43,9 @@ async fn count_inventory_encoding_is_explicit_and_keeps_physical_material_unchan
                         .len(),
                     0
                 );
+                context.return_scope = Some(return_scope);
+                assert_eq!(context.submitted_material(own)?, current);
+                context.return_scope = None;
                 context.known.clear();
                 let empty = context.submitted_material(own)?;
                 let HubSubmittedMaterial::KnownCountInventory(inventory) = &empty[1] else {

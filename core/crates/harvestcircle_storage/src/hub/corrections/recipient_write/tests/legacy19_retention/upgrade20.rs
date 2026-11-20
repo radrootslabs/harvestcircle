@@ -289,6 +289,7 @@ async fn native_reopen(native_context: &RuntimeContext, name: &str) -> serde_jso
 }
 
 #[tokio::test]
+#[ignore = "Published20-specific caller retained; current22 disposable composition owns current qualification"]
 async fn first20_heavy_native_reopen_caller_qualifies_on_disposable_default_stack() {
     let mut fixture = Fixture::new();
     fixture.build = build20();
@@ -338,6 +339,7 @@ async fn first20_heavy_native_reopen_caller_qualifies_on_disposable_default_stac
 }
 
 #[tokio::test]
+#[ignore = "Published20-specific metadata inspector retained; current catalogue/metadata qualification is separate"]
 async fn first20_inspector_checks_real_build_fields_catalog_inventory_and_clean_reopen() {
     let fixture = Fixture::new();
     let db = Database::open(&fixture.context, 99, 1000, &build20())

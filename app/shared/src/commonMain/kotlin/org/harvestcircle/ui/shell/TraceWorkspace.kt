@@ -167,10 +167,12 @@ private fun TraceBrowser(
                     role = HarvestCircleShellTextRole.BodyStrong,
                 )
                 HarvestCircleShellText(
-                    "Original ${row.trace.originalWholePacks} · On hand ${row.onHandWholePacks} · Actual departed ${row.departedWholePacks} · Count shortage ${row.countedLossWholePacks} · Physical disposition ${row.disposedWholePacks}",
+                    "Original ${row.trace.originalWholePacks} · On hand ${row.onHandWholePacks} · Documented departed ${row.departedWholePacks} · Original count shortage ${row.grossCountedLossWholePacks} · Explained ${row.explainedCountLossWholePacks} · Unexplained ${row.countedLossWholePacks} · Physical disposition ${row.disposedWholePacks}",
                 )
                 if (row.actualDepartedWholePacks > 0U) {
-                    HarvestCircleShellText("Reconciled already-taken departures ${row.actualDepartedWholePacks}")
+                    HarvestCircleShellText(
+                        "Interpreted already-taken departures ${row.actualDepartedWholePacks}; includes explained count shortages",
+                    )
                 }
                 HarvestCircleShellText("Original source: ${traceSourceMeaning(row.trace.source)}")
                 if (row.trace.sourceNeedsReview) HarvestCircleShellText("Original source review needed")
@@ -221,8 +223,9 @@ private fun TraceOverview(
         }, Modifier.testTag("trace-source-impact"), enabled = !state.loading)
     }
     HarvestCircleShellText(
-        "Original ${snapshot.trace.originalWholePacks} · On hand ${snapshot.onHandWholePacks} · Actual departed ${snapshot.departedWholePacks} · Count shortage ${snapshot.countedLossWholePacks} · Physical disposition ${snapshot.disposedWholePacks}",
+        "Original ${snapshot.trace.originalWholePacks} · On hand ${snapshot.onHandWholePacks} · Documented departed ${snapshot.departedWholePacks} · Original count shortage ${snapshot.grossCountedLossWholePacks} · Explained ${snapshot.explainedCountLossWholePacks} · Unexplained ${snapshot.countedLossWholePacks} · Physical disposition ${snapshot.disposedWholePacks}",
     )
+    HarvestCircleShellText("Interpreted already-taken departures ${snapshot.actualDepartedWholePacks}; includes explained count shortages")
     HarvestCircleShellText("Current on-hand groups", role = HarvestCircleShellTextRole.SectionTitle)
     if (snapshot.onHand.isEmpty()) HarvestCircleShellText("No packs remain on hand in this population.")
     snapshot.onHand.drop(state.positionsOffset).take(64).forEach { position ->
@@ -356,9 +359,10 @@ private fun TraceOverview(
             }
         }
     }
+    TraceCountInterpretations(snapshot, state, presenter)
     if (snapshot.countLosses.isNotEmpty()) {
-        HarvestCircleShellText("Unexplained count shortages", role = HarvestCircleShellTextRole.SectionTitle)
-        HarvestCircleShellText("The count establishes stock on hand. The loss time and cause remain unknown.")
+        HarvestCircleShellText("Original count shortages", role = HarvestCircleShellTextRole.SectionTitle)
+        HarvestCircleShellText("The count establishes stock on hand. Later explanations remain separate records.")
         snapshot.countLosses.drop(state.countLossesOffset).take(64).forEach { loss ->
             HarvestCircleShellPanel {
                 HarvestCircleShellText("${loss.wholePacks} missing whole packs", role = HarvestCircleShellTextRole.BodyStrong)
@@ -472,4 +476,7 @@ private fun traceActionLabel(kind: HubTraceHistoryKind): String =
         HubTraceHistoryKind.AdditionalCorrected -> "Additional departure quantity corrected"
         HubTraceHistoryKind.SourceAttributed -> "Source attribution amended; original retained"
         HubTraceHistoryKind.RecipientAttributed -> "Recipient attribution amended; original retained"
+        HubTraceHistoryKind.CountExplained -> "Count shortage explained; no additional stock debit"
+        HubTraceHistoryKind.CountClassified -> "Count explanation quantity classified"
+        HubTraceHistoryKind.CountReturnAssociated -> "Returned custody associated with count explanation"
     }

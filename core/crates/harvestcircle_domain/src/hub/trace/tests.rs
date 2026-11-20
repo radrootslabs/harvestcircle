@@ -1,5 +1,6 @@
 use super::*;
 mod corrections;
+mod recipient_search;
 use crate::hub::reference::{
     HubLabel, LocationPurpose, ReferenceValue, SourceCode, SourceReference, SourceReferenceKind,
 };
@@ -32,7 +33,7 @@ fn record(n: u8, value: ReferenceValue) -> ReferenceRecord {
 fn label(s: &str) -> HubLabel {
     HubLabel::new(s).unwrap()
 }
-fn fixture() -> TraceSnapshot {
+pub(super) fn fixture() -> TraceSnapshot {
     let product = record(
         1,
         ReferenceValue::Product {
@@ -72,6 +73,9 @@ fn fixture() -> TraceSnapshot {
         observation: text("Counted twenty original crates"),
     };
     TraceSnapshot {
+        count_interpretations: None,
+        count_return_associations: Vec::new(),
+        count_return_uncertain: false,
         source_corrections: Vec::new(),
         recipient_corrections: Vec::new(),
         quantity_corrections: vec![],
@@ -218,6 +222,8 @@ fn physical_accounting_keeps_originals_depleted_populations_and_distinct_pack_un
             on_hand: packs(15),
             departed: packs(5),
             counted_loss: packs(0),
+            gross_counted_loss: packs(0),
+            explained_count_loss: packs(0),
             disposed: packs(0),
             actual_departed: packs(0)
         }

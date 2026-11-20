@@ -431,6 +431,8 @@ impl CorrectedTraceQuantityContext<'_> {
         let mut explanations = BTreeSet::new();
         let mut count_operations = BTreeSet::new();
         let mut unexplained = zero();
+        let mut gross_counted_loss = zero();
+        let mut explained_count_loss = zero();
         for account in self.count_losses {
             if account.original.trace != self.trace || account.original.variant != self.variant {
                 return Err(CorrectionError::InvalidHistory);
@@ -469,6 +471,8 @@ impl CorrectedTraceQuantityContext<'_> {
                 }
             }
             unexplained = add(unexplained, account.unexplained)?;
+            gross_counted_loss = add(gross_counted_loss, account.original.packs)?;
+            explained_count_loss = add(explained_count_loss, account.explained)?;
             totals[1] = add(totals[1], account.explained)?;
         }
         if explanations.iter().any(|op| count_operations.contains(op)) {
@@ -490,6 +494,8 @@ impl CorrectedTraceQuantityContext<'_> {
             on_hand: self.on_hand,
             departed: totals[0],
             counted_loss: unexplained,
+            gross_counted_loss,
+            explained_count_loss,
             disposed: self.disposed,
             actual_departed: totals[1],
         })

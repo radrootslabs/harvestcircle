@@ -58,12 +58,15 @@ pub(in crate::hub) async fn apply_on(
         handling::treatment::capacity::Reservation::OrdinaryMetadata,
     )
     .await?;
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_corrections")
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|_| storage_unavailable())?;
-    if !(0..harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS as i64).contains(&count) {
-        return Err(stock::capacity());
+    super::row_budget::ensure_hub_on(tx).await?;
+    for trace in context
+        .original
+        .populations
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        super::row_budget::ensure_on(tx, hub.id(), trace).await?;
     }
     let state = stock::read::state_on(tx, hub.id()).await?;
     let op = OperationRecord {

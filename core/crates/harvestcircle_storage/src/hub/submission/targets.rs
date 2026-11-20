@@ -39,6 +39,7 @@ impl Targets {
                 t.references.insert(command.facts.recipient);
             }
             HubSubmittedRequest::CountClassification(_) => {}
+            HubSubmittedRequest::CountReturnAssociation(_) => {}
             HubSubmittedRequest::Reference(c) => match &c.mutation {
                 ReferenceMutation::Create { value, .. } => t.reference_value(value),
                 ReferenceMutation::Revise { id, value, .. } => {
@@ -186,6 +187,9 @@ pub(super) fn expected_versions(
             c.facts.expected_catalog_revision,
         ),
         HubSubmittedRequest::CountClassification(c) => {
+            (Some(c.expected_stock_revision), c.expected_catalog_revision)
+        }
+        HubSubmittedRequest::CountReturnAssociation(c) => {
             (Some(c.expected_stock_revision), c.expected_catalog_revision)
         }
         HubSubmittedRequest::Reference(c) => (None, c.expected_catalog_revision),

@@ -87,9 +87,24 @@ pub(in crate::hub) fn rebuild_on<'a, 'reader, 'connection>(
         if plan.explanation.stock_revision != root.op.revision {
             return Err(corrupt_storage());
         }
-        let material = [HubSubmittedMaterial::CountExplanation(Box::new(
+        tx.require_prior_correction_room_on(
+            hub,
+            plan.known_event.trace,
+            command.facts.expected_stock_revision,
+        )
+        .await?;
+        let mut material = vec![HubSubmittedMaterial::CountExplanation(Box::new(
             super::count_context::material(&context, command, own)?,
         ))];
+        // Native capture also includes the separately selected recipient
+        // reference. Rebuild its exact paired-cut version, preserving both
+        // representations and the complete immutable capture comparison.
+        crate::hub::submission::capture_references(
+            &context.facts.catalog,
+            std::collections::BTreeSet::from([command.facts.recipient]),
+            &mut material,
+        )
+        .map_err(|_| corrupt_storage())?;
         let admission = crate::hub::submission::verify_recorded_capture_on(
             tx,
             hub,

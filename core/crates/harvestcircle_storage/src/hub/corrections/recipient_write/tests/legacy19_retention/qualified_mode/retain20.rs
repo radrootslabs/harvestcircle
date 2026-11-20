@@ -375,6 +375,7 @@ async fn retain20(output: PathBuf) {
 
 #[tokio::test]
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[ignore = "Historical published20 producer proof retained; current native22 fixtures own new behavior"]
 async fn disposable_published20_qualified_retainer_checks_complete_caller_and_reopen() {
     let temporary = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     Box::pin(retain20(

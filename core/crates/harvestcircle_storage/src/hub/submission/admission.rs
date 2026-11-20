@@ -31,6 +31,11 @@ pub(super) async fn prepare_on(
     now: UnixTimestamp,
 ) -> Result<Decision, SafeError> {
     session::require_on(tx, scope).await?;
+    if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION < 22
+        && matches!(&mutation, HubMutation::CountReturnAssociation(_))
+    {
+        return Err(stock::invalid_input());
+    }
     if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION < 21
         && matches!(
             &mutation,

@@ -115,6 +115,16 @@ pub(in crate::hub) async fn load_on(
     departure: &DepartureRecord,
     cut: HubRevision,
 ) -> Result<CapturedReturnContext, SafeError> {
+    load_with_scope_on(tx, hub, departure, cut, None).await
+}
+
+pub(in crate::hub) async fn load_with_scope_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    departure: &DepartureRecord,
+    cut: HubRevision,
+    scope: Option<&super::count_return_scope::VerifiedScope>,
+) -> Result<CapturedReturnContext, SafeError> {
     let issued = departure
         .paper
         .versions
@@ -144,7 +154,7 @@ pub(in crate::hub) async fn load_on(
             quantity::history_from_original_on(tx, hub, &target, original.group, cut, &line)
                 .await?;
         let changes = history.amendments.clone();
-        let returned = funding::returns_on(tx, hub, &line, cut).await?;
+        let returned = funding::returns_with_scope_on(tx, hub, &line, cut, scope).await?;
         let account = history.with_verified_returns(returned.total)?;
         let credits = credits_on(tx, hub, &line, &changes).await?;
         let debit = PhysicalDebitKey {

@@ -50,6 +50,7 @@ pub(super) struct Context {
     pub latest_recorded_at: UnixTimestamp,
     pub uncertain_submissions: bool,
     pub count_aware: bool,
+    pub return_scope: Option<harvestcircle_application::hub_submission::HubSubmittedReturnScope>,
 }
 impl Context {
     pub fn submitted_material(
@@ -100,6 +101,14 @@ impl Context {
                 HubSubmittedKnownCountInventory { id, inventory },
             )));
         }
+        super::count_return_scope::append_material(
+            &mut material,
+            self.return_scope.as_ref(),
+            id,
+            self.hub,
+            self.revision,
+            self.catalog.revision(),
+        )?;
         Ok(material)
     }
 
@@ -180,6 +189,13 @@ pub(super) async fn load_on(
     {
         return Err(stock::conflict());
     }
+    let return_scope = {
+        let mut reader = OriginalReader::new(tx);
+        super::count_return_scope::VerifiedScope::for_cut_on(&mut reader, hub, state.revision)
+            .await?
+            .map(|scope| scope.material(command.facts.target_operation))
+            .transpose()?
+    };
     let report = crate::hub::actuals::reports::by_id_on(tx, hub, command.facts.report)
         .await?
         .original;
@@ -253,6 +269,7 @@ pub(super) async fn load_on(
         latest_recorded_at: UnixTimestamp::from_seconds(latest).ok_or_else(corrupt_storage)?,
         uncertain_submissions,
         count_aware,
+        return_scope,
     })
 }
 

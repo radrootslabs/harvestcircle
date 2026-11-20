@@ -88,6 +88,10 @@ class TracePresenter(
                 positionsOffset = 0,
                 exitsOffset = 0,
                 countLossesOffset = 0,
+                countAccountsOffset = 0,
+                countExplanationsOffset = 0,
+                countClassificationsOffset = 0,
+                countAssociationsOffset = 0,
                 dispositionsOffset = 0,
                 actualDeparturesOffset = 0,
                 quantityCorrectionsOffset = 0,
@@ -112,6 +116,7 @@ class TracePresenter(
             )
 
             check(snapshot.quantityCorrections.size <= 4096 && snapshot.quantityCorrections.sumOf { it.amendments.size.toLong() } <= 4096L)
+            checkCountProjection(snapshot)
             val history = requireNotNull(runtime).traceHistory(HubTraceHistoryQuery(id, snapshot.stockRevision, snapshot.catalogRevision))
             checkHistory(snapshot, history)
             check(history.offset == 0U)
@@ -236,6 +241,38 @@ class TracePresenter(
         if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(countLossesOffset = offset)
     }
 
+    fun countInterpretationsPage(
+        section: TraceCountSection,
+        delta: Int,
+    ) {
+        if (delta !in -1..1) return
+        val current = mutableState.value
+        val snapshot = current.snapshot ?: return
+        val count =
+            when (section) {
+                TraceCountSection.Accounts -> snapshot.countInterpretations?.accounts?.size ?: 0
+                TraceCountSection.Explanations -> snapshot.countInterpretations?.explanations?.size ?: 0
+                TraceCountSection.Classifications -> snapshot.countInterpretations?.accounts?.sumOf { it.classifications.size } ?: 0
+                TraceCountSection.ReturnAssociations -> snapshot.countReturnAssociations.size
+            }
+        val previous =
+            when (section) {
+                TraceCountSection.Accounts -> current.countAccountsOffset
+                TraceCountSection.Explanations -> current.countExplanationsOffset
+                TraceCountSection.Classifications -> current.countClassificationsOffset
+                TraceCountSection.ReturnAssociations -> current.countAssociationsOffset
+            }
+        val offset = previous + delta * 64
+        if (offset < 0 || offset >= count) return
+        mutableState.value =
+            when (section) {
+                TraceCountSection.Accounts -> current.copy(countAccountsOffset = offset)
+                TraceCountSection.Explanations -> current.copy(countExplanationsOffset = offset)
+                TraceCountSection.Classifications -> current.copy(countClassificationsOffset = offset)
+                TraceCountSection.ReturnAssociations -> current.copy(countAssociationsOffset = offset)
+            }
+    }
+
     fun actualDeparturesPage(delta: Int) {
         val current = mutableState.value
         val count = current.snapshot?.actualDepartures?.size ?: return
@@ -331,4 +368,18 @@ class TracePresenter(
         hub = null
         mutableState.value = TraceViewState()
     }
+}
+
+private fun checkCountProjection(snapshot: HubTraceSnapshot) {
+    check(snapshot.countReturnAssociations.size <= 4096)
+    val counts = snapshot.countInterpretations ?: return
+    check(counts.stockRevision == snapshot.stockRevision && counts.catalogRevision == snapshot.catalogRevision)
+    check(counts.accounts.size <= 4096 && counts.explanations.size <= 4096)
+    check(counts.explanations.size.toLong() + counts.accounts.sumOf { it.classifications.size.toLong() } <= 4096L)
+    check(
+        counts.explanations.sumOf {
+            it.interpretation.recipientHistory.size
+                .toLong()
+        } <= 4096L,
+    )
 }

@@ -117,6 +117,9 @@ pub enum HubTraceHistoryKind {
     AdditionalCorrected,
     SourceAttributed,
     RecipientAttributed,
+    CountExplained,
+    CountClassified,
+    CountReturnAssociated,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubTraceHistoryEntry {

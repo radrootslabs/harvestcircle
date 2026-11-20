@@ -46,6 +46,16 @@ pub(in crate::hub) async fn ensure_on(
     operation: &DurableRequestId,
     reservation: Reservation,
 ) -> Result<(), SafeError> {
+    let mut reader = crate::hub::actuals::proofs::OriginalReader::new(tx);
+    ensure_with_proofs_on(&mut reader, actor, operation, reservation).await
+}
+
+pub(in crate::hub) async fn ensure_with_proofs_on(
+    tx: &mut crate::hub::actuals::proofs::OriginalReader<'_, '_>,
+    actor: PublicKey,
+    operation: &DurableRequestId,
+    reservation: Reservation,
+) -> Result<(), SafeError> {
     let hub = reference::authorize_on(tx, actor).await?;
     reference::validate_basis_on(tx, hub.id()).await?;
     // Known original replay remains available at capacity; the handler verifies intent.
@@ -55,7 +65,7 @@ pub(in crate::hub) async fn ensure_on(
     {
         return Ok(());
     }
-    let counters = counters_on(tx, hub.id()).await?;
+    let counters = counters_with_proofs_on(tx, hub.id()).await?;
     check_budget(&counters, reservation)
 }
 
@@ -231,14 +241,22 @@ async fn counters_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
 ) -> Result<Counters, SafeError> {
-    let stock = stock::read::state_on(tx, hub).await?;
+    let mut reader = crate::hub::actuals::proofs::OriginalReader::new(tx);
+    counters_with_proofs_on(&mut reader, hub).await
+}
+
+async fn counters_with_proofs_on(
+    tx: &mut crate::hub::actuals::proofs::OriginalReader<'_, '_>,
+    hub: HubId,
+) -> Result<Counters, SafeError> {
+    let stock = stock::read::state_with_proofs_on(tx, hub).await?;
     let row=sqlx::query(concat!(
         "SELECT count(CASE WHEN t.kind<>'hold_release' THEN 1 END) AS primary_count,",
         "count(CASE WHEN t.kind='hold_place' THEN 1 END) AS placed,count(CASE WHEN t.kind='hold_release' THEN 1 END) AS released,",
         "count(CASE WHEN o.hub_id<>? OR t.kind<>o.kind OR t.record_id<>o.result_id OR (t.kind='hold_release' AND (held.kind IS NULL OR held.kind<>'hold_place' OR held.trace_id<>t.trace_id OR placed.stock_revision>=o.stock_revision)) THEN 1 END) AS invalid ",
         "FROM hub_treatment_records t JOIN hub_stock_operations o ON o.operation_id=t.operation_id ",
         "LEFT JOIN hub_treatment_records held ON held.record_id=t.hold_id LEFT JOIN hub_stock_operations placed ON placed.operation_id=held.operation_id"
-    )).bind(hub.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     let read = |name: &str| -> Result<u32, SafeError> {
         u32::try_from(row.try_get::<i64, _>(name).map_err(|_| corrupt_storage())?)
             .map_err(|_| corrupt_storage())
@@ -255,7 +273,7 @@ async fn counters_on(
     }
     let open = placed - released;
     let reviews: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_correction_initial_reviews")
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .map_err(|_| storage_unavailable())?;
     let reviews = u32::try_from(reviews).map_err(|_| corrupt_storage())?;
@@ -264,7 +282,7 @@ async fn counters_on(
     let actual: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM hub_actual_report_reviews WHERE review_operation_id IS NULL",
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|_| storage_unavailable())?;
     let actual = u32::try_from(actual).map_err(|_| corrupt_storage())?;

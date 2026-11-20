@@ -22,6 +22,7 @@ pub(in crate::hub) struct Own {
     pub reason: Option<String>,
     pub timing: String,
     pub result_hash: [u8; 32],
+    pub mode: Option<crate::hub::corrections::return_mode::Mode>,
 }
 pub(in crate::hub) async fn own_on(
     tx: &mut ServiceSqliteTransaction<'_>,
@@ -183,6 +184,16 @@ pub(in crate::hub) async fn own_on(
             return Err(corrupt_storage());
         }
     }
+    // Resolve immutable mode before constructing the large intake plan, keeping
+    // that plan out of the suspended future used by generic lineage readers.
+    let result_hash: [u8; 32] = row
+        .try_get::<Vec<u8>, _>("result_hash")
+        .map_err(|_| corrupt_storage())?
+        .try_into()
+        .map_err(|_| corrupt_storage())?;
+    let mode =
+        crate::hub::corrections::return_mode::original_on(tx, hub, op, &command, result_hash)
+            .await?;
     let mut intake_command = command.clone();
     intake_command.departure = None;
     let intake = intake_command
@@ -233,11 +244,8 @@ pub(in crate::hub) async fn own_on(
             .try_get("unresolved_reason")
             .map_err(|_| corrupt_storage())?,
         timing: row.try_get("timing").map_err(|_| corrupt_storage())?,
-        result_hash: row
-            .try_get::<Vec<u8>, _>("result_hash")
-            .map_err(|_| corrupt_storage())?
-            .try_into()
-            .map_err(|_| corrupt_storage())?,
+        result_hash,
+        mode,
     })
 }
 
@@ -278,12 +286,35 @@ struct OriginalContext {
     current_allowances: Option<harvestcircle_domain::hub::returns::ReturnAllowanceCapture>,
 }
 
-pub(in crate::hub) async fn original_on(
+pub(in crate::hub) fn original_on<'a, 'c>(
+    tx: &'a mut ServiceSqliteTransaction<'c>,
+    hub: HubId,
+    op: OperationRecord,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<HubReturnReceipt, SafeError>> + Send + 'a>,
+> {
+    Box::pin(async move {
+        if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 22 {
+            let mut reader = crate::hub::actuals::proofs::OriginalReader::new(tx);
+            return Ok(Box::pin(reader.return_original(hub, op))
+                .await?
+                .as_ref()
+                .clone());
+        }
+        legacy_full_on(tx, hub, op).await
+    })
+}
+
+async fn legacy_full_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     op: OperationRecord,
 ) -> Result<HubReturnReceipt, SafeError> {
     let own = own_on(tx, hub, &op).await?;
+    // This terminal closure never invokes a full association or creates a reader.
+    if own.mode.is_some() {
+        return Err(corrupt_storage());
+    }
     let capture =
         crate::hub::corrections::return_capture::read_on(tx, hub, &op, own.result_hash).await?;
     let mut original = context_on(tx, hub, &op, own).await?;
@@ -304,6 +335,150 @@ pub(in crate::hub) async fn original_on(
     finish_on(tx, hub, op, original).await
 }
 
+pub(in crate::hub) fn rebuild_with_proofs_on<'a, 'b, 'c>(
+    tx: &'a mut crate::hub::actuals::proofs::OriginalReader<'b, 'c>,
+    hub: HubId,
+    op: OperationRecord,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<HubReturnReceipt, SafeError>> + Send + 'a>,
+> {
+    Box::pin(async move {
+        let own = own_on(tx, hub, &op).await?;
+        let Some(mode) = own.mode else {
+            return Box::pin(legacy_full_on(tx, hub, op)).await;
+        };
+        let capture =
+            crate::hub::corrections::return_capture::read_on(tx, hub, &op, own.result_hash).await?;
+        let mut original = context_on(tx, hub, &op, own).await?;
+        let scope = Box::pin(
+            crate::hub::corrections::count_return_scope::VerifiedScope::load_on(
+                tx,
+                hub,
+                original.own.command.expected_stock_revision,
+            ),
+        )
+        .await?;
+        let evidence = scope.material(original.own.ids.returned)?;
+        if mode.scope != evidence.evidence_digest
+            || mode.associations != evidence.associations
+            || mode.epoch.stock != evidence.epoch_stock_revision
+            || mode.epoch.catalog != evidence.epoch_catalog_revision
+        {
+            return Err(corrupt_storage());
+        }
+        match mode.kind {
+            crate::hub::corrections::return_mode::Kind::Owned => {
+                let expected = match &original.departure {
+                    None => crate::hub::corrections::return_allowances::CapturedReturnContext {
+                        totals: Vec::new(),
+                        allowances: None,
+                    },
+                    Some(departure) => {
+                        Box::pin(
+                            crate::hub::corrections::return_allowances::load_with_scope_on(
+                                tx,
+                                hub,
+                                departure,
+                                original.own.command.expected_stock_revision,
+                                Some(&scope),
+                            ),
+                        )
+                        .await?
+                    }
+                };
+                if expected.totals != original.totals || expected.allowances != capture {
+                    return Err(corrupt_storage());
+                }
+                use harvestcircle_application::hub_submission::{
+                    HubSubmittedMaterial, HubSubmittedRequest, HubSubmittedReturn,
+                };
+                let command = &original.own.command;
+                let mut material = vec![
+                    HubSubmittedMaterial::Return(Box::new(HubSubmittedReturn {
+                        id: original.own.ids.returned,
+                        departure: original.departure.clone(),
+                        established_return_totals: original.totals.clone(),
+                        current_allowances: capture.clone(),
+                    })),
+                    HubSubmittedMaterial::ReturnScope(Box::new(evidence)),
+                ];
+                let mut references = [
+                    Some(command.variant),
+                    Some(command.location),
+                    command.returned_by,
+                    command.planned_location,
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<std::collections::BTreeSet<_>>();
+                if let harvestcircle_domain::hub::reference::SourceAttribution::Referenced {
+                    source,
+                    ..
+                } = &command.source
+                    && let Some(issuer) = source.issuer
+                {
+                    references.insert(issuer);
+                }
+                crate::hub::submission::capture_references(
+                    &original.own.catalog,
+                    references,
+                    &mut material,
+                )?;
+                let digest = crate::hub::submission::verify_recorded_capture_on(
+                    tx,
+                    hub,
+                    &op,
+                    HubSubmittedRequest::Return(command),
+                    command.expected_stock_revision,
+                    command.expected_catalog_revision,
+                    &material,
+                )
+                .await?;
+                if mode.capture != Some(digest) {
+                    return Err(corrupt_storage());
+                }
+            }
+            crate::hub::corrections::return_mode::Kind::Compatibility => {
+                // Reconstruct the explicit historical compatibility branch; today's
+                // runtime row must neither select nor invalidate this original.
+                if mode.associations != 0 || capture.is_some() || mode.capture.is_some() {
+                    return Err(corrupt_storage());
+                }
+                let corrections:i64=sqlx::query_scalar(concat!(
+                "SELECT count(*) FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=? ",
+                "AND (kind LIKE 'correction_%' OR kind='count_return_associate' OR EXISTS ",
+                "(SELECT 1 FROM hub_correction_captures c WHERE c.operation_id=hub_stock_operations.operation_id))"
+            )).bind(hub.as_bytes().as_slice()).bind(integer(original.own.command.expected_stock_revision)?)
+                .fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
+                if corrections != 0 {
+                    return Err(corrupt_storage());
+                }
+            }
+        }
+        original.current_allowances = capture;
+        finish_on(tx, hub, op, original).await
+    })
+}
+
+/// Fixed committed outcome for the lower funding reader. The new-mode branch
+/// verifies native mode/inner/wrapped and optional output seals, not the complete
+/// scope. Its caller must already own that full proof through VerifiedScope.
+pub(in crate::hub) async fn frozen_original_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    op: OperationRecord,
+) -> Result<HubReturnReceipt, SafeError> {
+    let own = own_on(tx, hub, &op).await?;
+    if own.mode.is_none() {
+        return legacy_original_on(tx, hub, op).await;
+    }
+    let capture =
+        crate::hub::corrections::return_capture::read_on(tx, hub, &op, own.result_hash).await?;
+    let mut original = context_on(tx, hub, &op, own).await?;
+    original.current_allowances = capture;
+    finish_on(tx, hub, op, original).await
+}
+
 /// This path cannot reconstruct current allowances. Both new records must be
 /// absent, and finish_on verifies the exact old None result seal.
 pub(in crate::hub) async fn legacy_original_on(
@@ -312,6 +487,9 @@ pub(in crate::hub) async fn legacy_original_on(
     op: OperationRecord,
 ) -> Result<HubReturnReceipt, SafeError> {
     let own = own_on(tx, hub, &op).await?;
+    if own.mode.is_some() {
+        return Err(corrupt_storage());
+    }
     if crate::hub::corrections::return_capture::read_on(tx, hub, &op, own.result_hash)
         .await?
         .is_some()
@@ -423,7 +601,7 @@ async fn finish_on(
         || plan.population() != own.population
         || return_result_digest(&op.hash, &own.command, &context, &plan)
             .map_err(|_| corrupt_storage())?
-            != own.result_hash
+            != own.mode.map(|mode| mode.inner).unwrap_or(own.result_hash)
     {
         return Err(corrupt_storage());
     }

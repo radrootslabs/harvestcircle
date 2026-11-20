@@ -6,6 +6,7 @@ mod admission_cases;
 mod attribution_cases;
 mod count_capture;
 mod count_history;
+mod count_return_capacity;
 mod found_cases;
 mod recipient_cases;
 mod source_cases;

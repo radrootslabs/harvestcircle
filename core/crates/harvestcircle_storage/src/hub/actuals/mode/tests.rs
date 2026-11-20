@@ -34,7 +34,7 @@ fn native20_schema_pins_bind_the_additive_epoch_and_exact_review_guard() {
 }
 
 #[tokio::test]
-async fn native20_new_hub_and_first_actual_bind_qualified_empty_meanings_to_exact_admission() {
+async fn native22_new_hub_and_first_actual_bind_qualified_empty_inventory_to_both_markers() {
     use crate::hub::{
         corrections::projection_native_tests,
         stock::tests::{Fixture, owner},
@@ -61,8 +61,18 @@ async fn native20_new_hub_and_first_actual_bind_qualified_empty_meanings_to_exac
             .await
             .unwrap();
     let text = String::from_utf8(capture).unwrap();
-    assert!(text.contains("\"interpretations\":"));
+    assert!(text.contains("\"count_aware_actual_review\":"));
+    assert!(text.contains("\"inventory\":{\"schema\":2,"));
+    assert!(text.contains("\"count_accounts\":[]"));
     assert!(text.contains("\"records\":[]"));
+    let count_capture: Vec<u8> = sqlx::query_scalar(
+        "SELECT capture_hash FROM hub_count_interpretation_markers WHERE operation_id=?",
+    )
+    .bind(operation.as_str())
+    .fetch_one(&mut raw)
+    .await
+    .unwrap();
+    assert_eq!(count_capture, marker.3);
     drop(raw);
     db.close().await.unwrap();
     let reopened = fixture.open().await;

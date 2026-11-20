@@ -32,7 +32,7 @@ pub(in crate::hub) struct Facts {
 // reads that state separately; a future frozen reader must authenticate its
 // original captured uncertainty before constructing a planning context.
 pub(super) struct Context {
-    pub facts: Facts,
+    pub facts: Box<Facts>,
     pub uncertain_submissions: bool,
 }
 impl Context {
@@ -66,46 +66,51 @@ impl Context {
     }
 }
 
-pub(super) async fn current_on(
-    tx: &mut OriginalReader<'_, '_>,
+type ContextFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Context, SafeError>> + Send + 'a>>;
+
+pub(super) fn current_on<'a, 'reader, 'connection>(
+    tx: &'a mut OriginalReader<'reader, 'connection>,
     hub: HubId,
-    query: &CountExplanationCommand,
-) -> Result<Context, SafeError> {
-    current_with_pending_on(tx, hub, query, None).await
+    query: &'a CountExplanationCommand,
+) -> ContextFuture<'a> {
+    current_with_pending_on(tx, hub, query, None)
 }
 
 // Only a fresh admitted writer may exclude its exact own pending operation.
-pub(super) async fn current_with_pending_on(
-    tx: &mut OriginalReader<'_, '_>,
+pub(super) fn current_with_pending_on<'a, 'reader, 'connection>(
+    tx: &'a mut OriginalReader<'reader, 'connection>,
     hub: HubId,
-    query: &CountExplanationCommand,
-    except: Option<&DurableRequestId>,
-) -> Result<Context, SafeError> {
-    let state = stock::read::state_on(tx, hub).await?;
-    let catalog = reference::load_catalog_on(tx, hub).await?;
-    if state.revision != query.facts.expected_stock_revision
-        || catalog.revision() != query.facts.expected_catalog_revision
-    {
-        return Err(stock::conflict());
-    }
-    // Writers and their original/correction ledgers are not activated
-    // yet. An absent adapter must never fabricate an empty history.
-    let unsupported: i64 = sqlx::query_scalar(concat!(
+    query: &'a CountExplanationCommand,
+    except: Option<&'a DurableRequestId>,
+) -> ContextFuture<'a> {
+    Box::pin(async move {
+        let state = stock::read::state_with_proofs_on(tx, hub).await?;
+        let catalog = reference::load_catalog_on(tx, hub).await?;
+        if state.revision != query.facts.expected_stock_revision
+            || catalog.revision() != query.facts.expected_catalog_revision
+        {
+            return Err(stock::conflict());
+        }
+        // Published physical-only producers cannot contain count metadata. New
+        // producers reconstruct the complete account and known prefix below.
+        let unsupported: i64 = sqlx::query_scalar(concat!(
                 "SELECT (SELECT count(*) FROM hub_corrections WHERE family IN ('count_explain','count_classify'))+",
                 "(SELECT count(*) FROM hub_correction_count_explanations)"
             )).fetch_one(&mut **tx).await.map_err(|_| storage_unavailable())?;
-    if unsupported != 0 {
-        return Err(corrupt_storage());
-    }
-    let facts = Box::pin(at_on(tx, hub, query, Positions::Current)).await?;
-    let uncertain_submissions = match except {
-        Some(own) => crate::hub::submission::uncertainty_on(tx, own).await?,
-        None => crate::hub::submission::uncertainty_all_on(tx).await?,
-    }
-    .uncertain_intent;
-    Ok(Context {
-        facts,
-        uncertain_submissions,
+        if unsupported != 0 && crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION < 21 {
+            return Err(corrupt_storage());
+        }
+        let facts = at_on(tx, hub, query, Positions::Current).await?;
+        let uncertain_submissions = match except {
+            Some(own) => crate::hub::submission::uncertainty_on(tx, own).await?,
+            None => crate::hub::submission::uncertainty_all_on(tx).await?,
+        }
+        .uncertain_intent;
+        Ok(Context {
+            facts,
+            uncertain_submissions,
+        })
     })
 }
 
@@ -116,50 +121,57 @@ pub(in crate::hub) async fn facts_on(
     tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     query: &CountExplanationCommand,
-) -> Result<Facts, SafeError> {
-    Box::pin(at_on(tx, hub, query, Positions::Historical)).await
+) -> Result<Box<Facts>, SafeError> {
+    at_on(tx, hub, query, Positions::Historical).await
 }
 
 enum Positions {
     Current,
     Historical,
 }
-async fn at_on(
-    tx: &mut OriginalReader<'_, '_>,
+fn at_on<'a, 'reader, 'connection>(
+    tx: &'a mut OriginalReader<'reader, 'connection>,
     hub: HubId,
-    query: &CountExplanationCommand,
+    query: &'a CountExplanationCommand,
     positions: Positions,
-) -> Result<Facts, SafeError> {
-    // Audit the current journal envelope without replaying current originals
-    // or substituting current materialized positions for the requested cut.
-    stock::read::journal_state_on(tx, hub).await?;
-    let cut = query.facts.expected_stock_revision;
-    let cut_sql = i64::try_from(cut.value()).map_err(|_| corrupt_storage())?;
-    let catalog_sql = i64::try_from(query.facts.expected_catalog_revision.value())
-        .map_err(|_| corrupt_storage())?;
-    let (operations, maximum, dependency, latest): (i64,i64,i64,Option<i64>) = sqlx::query_as(concat!(
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Box<Facts>, SafeError>> + Send + 'a>>
+{
+    Box::pin(async move {
+        // Audit the current journal envelope without replaying current originals
+        // or substituting current materialized positions for the requested cut.
+        stock::read::journal_state_on(tx, hub).await?;
+        let cut = query.facts.expected_stock_revision;
+        let cut_sql = i64::try_from(cut.value()).map_err(|_| corrupt_storage())?;
+        let catalog_sql = i64::try_from(query.facts.expected_catalog_revision.value())
+            .map_err(|_| corrupt_storage())?;
+        let (operations, maximum, dependency, latest): (i64,i64,i64,Option<i64>) = sqlx::query_as(concat!(
         "SELECT count(*),COALESCE(max(stock_revision),1),COALESCE(max(catalog_revision),1),max(recorded_at_unix_s) ",
         "FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=?"
     )).bind(hub.as_bytes().as_slice()).bind(cut_sql).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
-    if maximum != cut_sql || dependency > catalog_sql {
-        return Err(stock::invalid_input());
-    }
-    if operations.checked_add(1) != Some(cut_sql) {
-        return Err(corrupt_storage());
-    }
-    let catalog =
-        reference::load_catalog_through_on(tx, hub, query.facts.expected_catalog_revision).await?;
-    let unsupported: i64 = sqlx::query_scalar(concat!(
+        if maximum != cut_sql || dependency > catalog_sql {
+            return Err(stock::invalid_input());
+        }
+        if operations.checked_add(1) != Some(cut_sql) {
+            return Err(corrupt_storage());
+        }
+        let catalog =
+            reference::load_catalog_through_on(tx, hub, query.facts.expected_catalog_revision)
+                .await?;
+        let unsupported: i64 = sqlx::query_scalar(concat!(
         "SELECT (SELECT count(*) FROM hub_corrections c LEFT JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
         "WHERE c.family IN ('count_explain','count_classify') AND (o.operation_id IS NULL OR (o.hub_id=? AND o.stock_revision<=?)))+",
         "(SELECT count(*) FROM hub_correction_count_explanations c LEFT JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
         "WHERE o.operation_id IS NULL OR (o.hub_id=? AND o.stock_revision<=?))"
     )).bind(hub.as_bytes().as_slice()).bind(cut_sql).bind(hub.as_bytes().as_slice()).bind(cut_sql)
         .fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
-    if unsupported != 0 {
-        return Err(corrupt_storage());
-    }
-    let target: Option<String> = sqlx::query_scalar(
+        if unsupported != 0 && crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION < 21 {
+            return Err(corrupt_storage());
+        }
+        // Return originals below account reconstruction can refer to older
+        // count interpretations too. Prove the complete earlier E/C prefix
+        // before entering that path, not only before the later known inventory.
+        Box::pin(super::count_headers::through_on(tx, hub, cut)).await?;
+        let target: Option<String> = sqlx::query_scalar(
         concat!("SELECT substr(c.operation_id,1,37) FROM hub_count_reconciliations c ",
             "JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
             "WHERE c.reconciliation_id=? AND o.hub_id=? AND o.stock_revision<=? AND o.catalog_revision<=?"),
@@ -169,102 +181,136 @@ async fn at_on(
     .fetch_optional(&mut **tx)
     .await
     .map_err(|_| storage_unavailable())?;
-    let target = DurableRequestId::parse(target.ok_or_else(stock::invalid_input)?)
-        .map_err(|_| corrupt_storage())?;
-    let original = stock::read::operation_on(tx, hub, &target)
-        .await?
-        .ok_or_else(corrupt_storage)?;
-    let count = Box::pin(crate::hub::counts::posting::original_on(tx, hub, original))
-        .await?
-        .original;
-    if count.id != query.facts.count_reconciliation {
-        return Err(corrupt_storage());
-    }
-    let CountEffect::Shortage { .. } = count.effect else {
-        return Err(stock::invalid_input());
-    };
-    if matches!(positions, Positions::Current) {
-        // Current materialized positions are independently audited before
-        // offering a current comparison. A balanced sibling transfer cannot
-        // hide behind population-wide conservation or the old count cut.
-        let current = Box::pin(handling::lineage::load_on(
-            tx,
-            hub,
-            count.before.trace,
-            &catalog,
-            cut,
-        ))
-        .await?;
-        let reconstructed_current = Box::pin(handling::lineage::historical_quantities_on(
-            tx,
-            hub,
-            count.before.trace,
-            cut,
-        ))
-        .await?;
-        if current.graph != reconstructed_current {
+        let target = DurableRequestId::parse(target.ok_or_else(stock::invalid_input)?)
+            .map_err(|_| corrupt_storage())?;
+        let original = stock::read::operation_on(tx, hub, &target)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        let count = Box::pin(crate::hub::counts::posting::original_on(tx, hub, original))
+            .await?
+            .original;
+        if count.id != query.facts.count_reconciliation {
             return Err(corrupt_storage());
         }
-    }
-    let history = super::count_account::history_on(tx, hub, &count, cut).await?;
-    let returns = super::count_returns::for_history_on(tx, hub, &history, cut).await?;
-    let account = history.with_returns(returns.totals)?;
-    let included: i64 = sqlx::query_scalar(concat!(
+        let CountEffect::Shortage { .. } = count.effect else {
+            return Err(stock::invalid_input());
+        };
+        if matches!(positions, Positions::Current) {
+            // Current materialized positions are independently audited before
+            // offering a current comparison. A balanced sibling transfer cannot
+            // hide behind population-wide conservation or the old count cut.
+            let current = Box::pin(handling::lineage::load_on(
+                tx,
+                hub,
+                count.before.trace,
+                &catalog,
+                cut,
+            ))
+            .await?;
+            let reconstructed_current = Box::pin(handling::lineage::historical_quantities_on(
+                tx,
+                hub,
+                count.before.trace,
+                cut,
+            ))
+            .await?;
+            if current.graph != reconstructed_current {
+                return Err(corrupt_storage());
+            }
+        }
+        let history = super::count_account::history_on(tx, hub, &count, cut).await?;
+        let returns = super::count_returns::for_history_on(tx, hub, &history, cut).await?;
+        let account = history.with_returns(returns.totals)?;
+        let included: i64 = sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_actual_reports r JOIN hub_stock_operations o ON o.operation_id=r.operation_id ",
         "WHERE r.report_id=? AND o.hub_id=? AND o.stock_revision<=? AND o.catalog_revision<=?"
     )).bind(query.facts.report.as_bytes().as_slice()).bind(hub.as_bytes().as_slice())
         .bind(cut_sql).bind(catalog_sql).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
-    if included != 1 {
-        return Err(stock::invalid_input());
-    }
-    let report = crate::hub::actuals::reports::by_id_on(tx, hub, query.facts.report)
-        .await?
-        .original;
-    let prior_report_review = report_marker_through_on(tx, hub, report.id, cut).await?;
-    let graph = Box::pin(handling::lineage::historical_quantities_on(
-        tx,
-        hub,
-        count.before.trace,
-        count.count.scope.stock_revision,
-    ))
-    .await?;
-    let population = handling::read::trace_on(tx, hub, graph.trace()).await?;
-    let source = Box::pin(handling::actuals::source_on(
-        tx,
-        hub,
-        &graph,
-        &population,
-        &crate::hub::actuals::common::operation(query.source_operation)?,
-        query.source_group,
-    ))
-    .await?;
-    let activity = Box::pin(handling::actuals::activity_on(tx, hub, &graph, &source)).await?;
-    let treatment = Box::pin(handling::treatment::read::historical_state_on(
-        tx, hub, &graph,
-    ))
-    .await?;
-    let known = Box::pin(super::known::load_with_proofs_on(
-        tx,
-        hub,
-        graph.trace(),
-        cut,
-    ))
-    .await?;
-    Ok(Facts {
-        hub,
-        stock_revision: cut,
-        catalog,
-        latest_recorded_at: UnixTimestamp::from_seconds(latest.ok_or_else(corrupt_storage)?)
-            .ok_or_else(corrupt_storage)?,
-        count,
-        account,
-        report,
-        prior_report_review,
-        graph,
-        source,
-        activity,
-        treatment,
-        known,
+        if included != 1 {
+            return Err(stock::invalid_input());
+        }
+        let report = crate::hub::actuals::reports::by_id_on(tx, hub, query.facts.report)
+            .await?
+            .original;
+        let prior_report_review = report_marker_through_on(tx, hub, report.id, cut).await?;
+        let SourceFacts {
+            graph,
+            source,
+            activity,
+            treatment,
+        } = source_at_count_on(tx, hub, &count, query).await?;
+        let known = Box::pin(super::known::load_with_proofs_on(
+            tx,
+            hub,
+            graph.trace(),
+            cut,
+        ))
+        .await?;
+        // Complete immutable facts stay owned while nested proof futures suspend.
+        Ok(Box::new(Facts {
+            hub,
+            stock_revision: cut,
+            catalog,
+            latest_recorded_at: UnixTimestamp::from_seconds(latest.ok_or_else(corrupt_storage)?)
+                .ok_or_else(corrupt_storage)?,
+            count,
+            account,
+            report,
+            prior_report_review,
+            graph,
+            source,
+            activity,
+            treatment,
+            known,
+        }))
+    })
+}
+
+struct SourceFacts {
+    graph: PhysicalLineage,
+    source: HistoricalActualSource,
+    activity: Vec<ActualPhysicalActivity>,
+    treatment: TreatmentState,
+}
+
+// Finish physical-source reconstruction before descending into known-original
+// proofs. Its suspended temporaries must not accumulate along that history.
+fn source_at_count_on<'a, 'reader, 'connection>(
+    tx: &'a mut OriginalReader<'reader, 'connection>,
+    hub: HubId,
+    count: &'a CountPostPlan,
+    query: &'a CountExplanationCommand,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<SourceFacts, SafeError>> + Send + 'a>>
+{
+    Box::pin(async move {
+        let graph = Box::pin(handling::lineage::historical_quantities_on(
+            tx,
+            hub,
+            count.before.trace,
+            count.count.scope.stock_revision,
+        ))
+        .await?;
+        let population = handling::read::trace_on(tx, hub, graph.trace()).await?;
+        let source = Box::pin(handling::actuals::source_on(
+            tx,
+            hub,
+            &graph,
+            &population,
+            &crate::hub::actuals::common::operation(query.source_operation)?,
+            query.source_group,
+        ))
+        .await?;
+        let activity = Box::pin(handling::actuals::activity_on(tx, hub, &graph, &source)).await?;
+        let treatment = Box::pin(handling::treatment::read::historical_state_on(
+            tx, hub, &graph,
+        ))
+        .await?;
+        Ok(SourceFacts {
+            graph,
+            source,
+            activity,
+            treatment,
+        })
     })
 }
 

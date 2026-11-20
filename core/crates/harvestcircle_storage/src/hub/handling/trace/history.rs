@@ -2,15 +2,21 @@ use super::*;
 use crate::hub::actuals::proofs::OriginalReader;
 
 macro_rules! linked_predicate { () => { concat!(
-    "EXISTS(SELECT 1 FROM hub_stock_events e WHERE e.operation_id=o.operation_id AND e.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_dispatch_changes d LEFT JOIN hub_dispatch_changes prior ON prior.preparation_id=d.preparation_id AND prior.record_revision=d.expected_record_revision JOIN hub_dispatch_material_lines m ON m.operation_id=d.material_operation_id OR m.operation_id=prior.material_operation_id WHERE d.operation_id=o.operation_id AND m.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_returns returned JOIN hub_return_sources source ON source.return_id=returned.return_id JOIN hub_departure_lines line ON line.operation_id=source.departure_operation_id AND line.ordinal=source.ordinal WHERE returned.operation_id=o.operation_id AND line.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_actual_reports r JOIN hub_actual_report_sources s ON s.report_id=r.report_id WHERE r.operation_id=o.operation_id AND s.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_actual_reviews r WHERE r.operation_id=o.operation_id AND r.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_correction_observations observation JOIN hub_corrections correction ON correction.observation_operation_id=observation.operation_id JOIN hub_stock_events effect ON effect.operation_id=correction.operation_id WHERE observation.operation_id=o.operation_id AND effect.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_actual_reports report JOIN hub_corrections correction ON correction.report_id=report.report_id JOIN hub_stock_events effect ON effect.operation_id=correction.operation_id WHERE report.operation_id=o.operation_id AND effect.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_corrections correction WHERE correction.operation_id=o.operation_id AND correction.family='source' AND correction.subject_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_corrections correction JOIN hub_correction_scope_links scope ON scope.correction_operation_id=correction.operation_id AND scope.introduced_operation_id=correction.operation_id WHERE correction.operation_id=o.operation_id AND correction.family='recipient' AND scope.target_kind='population' AND scope.target_id=?)"
+    "EXISTS(SELECT 1 FROM hub_stock_events e WHERE e.operation_id=o.operation_id AND e.trace_id=?1) OR ",
+    "EXISTS(SELECT 1 FROM hub_dispatch_changes d LEFT JOIN hub_dispatch_changes prior ON prior.preparation_id=d.preparation_id AND prior.record_revision=d.expected_record_revision JOIN hub_dispatch_material_lines m ON m.operation_id=d.material_operation_id OR m.operation_id=prior.material_operation_id WHERE d.operation_id=o.operation_id AND m.trace_id=?1) OR ",
+    "EXISTS(SELECT 1 FROM hub_returns returned JOIN hub_return_sources source ON source.return_id=returned.return_id JOIN hub_departure_lines line ON line.operation_id=source.departure_operation_id AND line.ordinal=source.ordinal WHERE returned.operation_id=o.operation_id AND line.trace_id=?1) OR ",
+    "EXISTS(SELECT 1 FROM hub_actual_reports r JOIN hub_actual_report_sources s ON s.report_id=r.report_id WHERE r.operation_id=o.operation_id AND s.trace_id=?1) OR ",
+    "EXISTS(SELECT 1 FROM hub_actual_reviews r WHERE r.operation_id=o.operation_id AND r.trace_id=?1) OR ",
+    "EXISTS(SELECT 1 FROM hub_correction_observations observation JOIN hub_corrections correction ON correction.observation_operation_id=observation.operation_id JOIN hub_stock_events effect ON effect.operation_id=correction.operation_id WHERE observation.operation_id=o.operation_id AND effect.trace_id=?1) OR ",
+    "EXISTS(SELECT 1 FROM hub_actual_reports report JOIN hub_corrections correction ON correction.report_id=report.report_id JOIN hub_stock_events effect ON effect.operation_id=correction.operation_id WHERE report.operation_id=o.operation_id AND effect.trace_id=?1) OR ",
+    "EXISTS(SELECT 1 FROM hub_corrections correction JOIN hub_count_reconciliations reconciliation ON reconciliation.operation_id=correction.account_operation_id JOIN hub_count_observations observed ON observed.count_id=reconciliation.count_id WHERE correction.family IN ('count_explain','count_classify') AND observed.trace_id=?1 AND (correction.operation_id=o.operation_id OR correction.observation_operation_id=o.operation_id OR EXISTS(SELECT 1 FROM hub_actual_reports report WHERE report.report_id=correction.report_id AND report.operation_id=o.operation_id))) OR ",
+    "EXISTS(SELECT 1 FROM hub_corrections correction WHERE correction.operation_id=o.operation_id AND correction.family='source' AND correction.subject_id=?1) OR ",
+    "EXISTS(SELECT 1 FROM hub_corrections correction JOIN hub_correction_scope_links scope ON scope.correction_operation_id=correction.operation_id AND scope.introduced_operation_id=correction.operation_id WHERE correction.operation_id=o.operation_id AND correction.family='recipient' AND scope.target_kind='population' AND scope.target_id=?1)"
+) }; }
+// Association tables do not exist in the physical-only producer. Select this
+// additive predicate from the native version, never saved material presence.
+macro_rules! association_predicate { () => { concat!(
+    " OR EXISTS(SELECT 1 FROM hub_count_return_associations association JOIN hub_count_reconciliations reconciliation ON reconciliation.operation_id=association.count_operation_id JOIN hub_count_observations observed ON observed.count_id=reconciliation.count_id JOIN hub_returns returned ON returned.operation_id=association.return_operation_id WHERE (association.operation_id=o.operation_id OR association.return_operation_id=o.operation_id) AND (observed.trace_id=?1 OR returned.population_id=?1))"
 ) }; }
 impl Database {
     pub async fn hub_trace_history(
@@ -31,18 +37,14 @@ impl Database {
                     .await?;
                     let _ = super::super::read::trace_on(tx, hub, query.trace).await?;
                     // Keep count and page predicates one static checked SQL contract.
-                    let count: i64 = sqlx::query_scalar(concat!(
-                        "SELECT count(*) FROM hub_stock_operations o WHERE ",
-                        linked_predicate!()
-                    ))
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
+                    let (count_sql, page_sql) = if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 22 {
+                        (concat!("SELECT count(*) FROM hub_stock_operations o WHERE ", linked_predicate!(), association_predicate!()),
+                         concat!("SELECT substr(o.operation_id,1,37) FROM hub_stock_operations o WHERE ", linked_predicate!(), association_predicate!(), " ORDER BY o.stock_revision LIMIT ?2 OFFSET ?3"))
+                    } else {
+                        (concat!("SELECT count(*) FROM hub_stock_operations o WHERE ", linked_predicate!()),
+                         concat!("SELECT substr(o.operation_id,1,37) FROM hub_stock_operations o WHERE ", linked_predicate!(), " ORDER BY o.stock_revision LIMIT ?2 OFFSET ?3"))
+                    };
+                    let count: i64 = sqlx::query_scalar(count_sql)
                     .bind(query.trace.as_bytes().as_slice())
                     .fetch_one(&mut *tx)
                     .await
@@ -52,20 +54,7 @@ impl Database {
                         harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY,
                         query.offset,
                     )?;
-                    let operations: Vec<String> = sqlx::query_scalar(concat!(
-                        "SELECT substr(o.operation_id,1,37) FROM hub_stock_operations o WHERE ",
-                        linked_predicate!(),
-                        " ",
-                        "ORDER BY o.stock_revision LIMIT ? OFFSET ?"
-                    ))
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
-                    .bind(query.trace.as_bytes().as_slice())
+                    let operations: Vec<String> = sqlx::query_scalar(page_sql)
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(i64::from(query.limit))
                     .bind(i64::from(query.offset))
@@ -110,6 +99,29 @@ async fn entry_on(
     let recorded_at = operation.recorded_at;
     let result = operation.result;
     let (kind, occurred, observation) = match operation.kind.as_str() {
+        "correction_count_explain" => {
+            let receipt = Box::pin(tx.count_explanation(hub, operation)).await?;
+            (
+                HubTraceHistoryKind::CountExplained,
+                Some(receipt.original.facts.occurred),
+                receipt.original.facts.quantity_evidence.clone(),
+            )
+        }
+        "correction_count_classify" => {
+            let receipt = Box::pin(tx.count_classification(hub, operation)).await?;
+            let harvestcircle_domain::hub::corrections::CorrectionObservedFacts::CountClassification { basis, .. } = &receipt.original.observation.observation.facts else {
+                return Err(corrupt_storage());
+            };
+            (HubTraceHistoryKind::CountClassified, None, basis.clone())
+        }
+        "count_return_associate" => {
+            let receipt = Box::pin(tx.count_return_association(hub, operation)).await?;
+            (
+                HubTraceHistoryKind::CountReturnAssociated,
+                None,
+                receipt.original.command.quantity_evidence.clone(),
+            )
+        }
         "correction_recipient" => {
             let own = crate::hub::actuals::common::operation_id(&operation.id)?;
             let records = Box::pin(crate::hub::corrections::recipient_records_with_proofs_on(

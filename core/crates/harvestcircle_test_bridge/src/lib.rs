@@ -5,11 +5,13 @@ use harvestcircle_ffi::{
     HubActualReportQueryDto, HubActualReviewReceiptDto,
 };
 mod actual_trace;
+mod count_trace;
 pub use actual_trace::{
     actual_link_interpretation_encoding_probe, actual_trace_encoding_probe,
     actual_trace_history_encoding_probe, corrected_trace_encoding_probe,
     recipient_trace_encoding_probe, source_trace_encoding_probe,
 };
+pub use count_trace::{count_return_trace_encoding_probe, count_trace_encoding_probe};
 
 use std::fmt::{self, Display, Formatter};
 use std::fs;

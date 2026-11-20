@@ -21,11 +21,26 @@ pub(super) struct ReturnReservations {
 /// including those recorded
 /// before a historical departure was reviewed. Current attribution/party labels
 /// do not prove that an unresolved return belongs to a disjoint physical debit.
+#[cfg(test)]
 pub(super) async fn returns_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     line: &CanonicalLine,
     cut: HubRevision,
+) -> Result<ReturnReservations, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    let scope = super::count_return_scope::VerifiedScope::for_cut_on(&mut reader, hub, cut).await?;
+    returns_with_scope_on(&mut reader, hub, line, cut, scope.as_ref()).await
+}
+
+/// Scope must have been independently reconstructed through the shared full
+/// original reader before entering this lower, nonrecursive funding layer.
+pub(super) async fn returns_with_scope_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    line: &CanonicalLine,
+    cut: HubRevision,
+    scope: Option<&super::count_return_scope::VerifiedScope>,
 ) -> Result<ReturnReservations, SafeError> {
     if line.original.stock_revision.value() > cut.value() {
         return Err(corrupt_storage());
@@ -51,7 +66,17 @@ pub(super) async fn returns_on(
         evidence_digest: [0; 32],
     };
     let mut evidence = Sha256::new();
-    evidence.update(b"harvestcircle.hub.return.funding.evidence.v1\0");
+    let epoch = if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 22 {
+        Some(super::count_return_ledger::epoch_on(tx, hub).await?)
+    } else {
+        None
+    };
+    if let Some(scope) = scope {
+        evidence.update(b"harvestcircle.hub.return.funding.evidence.v2\0");
+        evidence.update(scope.validate_for(hub, cut)?);
+    } else {
+        evidence.update(b"harvestcircle.hub.return.funding.evidence.v1\0");
+    }
     evidence.update(hub.as_bytes());
     evidence.update(line.original.operation.as_bytes());
     evidence.update(line.original.group.as_bytes());
@@ -63,6 +88,11 @@ pub(super) async fn returns_on(
             .await?
             .ok_or_else(corrupt_storage)?;
         if op.kind != "return" || op.revision.value() > cut.value() {
+            return Err(corrupt_storage());
+        }
+        // A new-mode reservation cannot enter an old unscoped interpretation.
+        // Fresh consumers must supply the fully authenticated read-cut scope.
+        if scope.is_none() && epoch.is_some_and(|epoch| op.revision.value() > epoch.stock) {
             return Err(corrupt_storage());
         }
         let revision = op.revision;
@@ -95,7 +125,7 @@ pub(super) async fn returns_on(
                 // Only an absent capture AND output projection may take this path;
                 // the exact None full result seal must still verify. Old originals
                 // never recurse through current allowance or funding reconstruction.
-                let original = Box::pin(crate::hub::custody::returns::read::legacy_original_on(
+                let original = Box::pin(crate::hub::custody::returns::read::frozen_original_on(
                     tx, hub, op,
                 ))
                 .await?
@@ -137,9 +167,6 @@ pub(super) async fn returns_on(
                             .is_some_and(|known| known.operation == line.original.operation),
                 )
             };
-        if variant != line.original.variant && !related {
-            continue;
-        }
         // Commit every relevant immutable original, including uncertain and
         // disjoint established scopes; scalar totals alone are not provenance.
         let full: Vec<u8> = sqlx::query_scalar(
@@ -150,6 +177,22 @@ pub(super) async fn returns_on(
         .await
         .map_err(|_| storage_unavailable())?;
         let full: [u8; 32] = full.try_into().map_err(|_| corrupt_storage())?;
+        let count_disjoint = scope
+            .map(|scope| {
+                scope.disjoint_return(
+                    operation,
+                    revision,
+                    variant,
+                    packs,
+                    full,
+                    established.is_some(),
+                )
+            })
+            .transpose()?
+            .unwrap_or(false);
+        if variant != line.original.variant && !related {
+            continue;
+        }
         let projection:Option<Vec<u8>>=sqlx::query_scalar("SELECT substr(projection_hash,1,33) FROM hub_correction_return_projections WHERE operation_id=?").bind(id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?;
         evidence.update(id.as_str().as_bytes());
         evidence.update(input_hash);
@@ -163,6 +206,9 @@ pub(super) async fn returns_on(
         if let Some(projection) = projection {
             let projection: [u8; 32] = projection.try_into().map_err(|_| corrupt_storage())?;
             evidence.update(projection);
+        }
+        if count_disjoint {
+            continue;
         }
         let Some((known_operation, known_departure, selected)) = established else {
             result.unresolved = true;

@@ -61,6 +61,7 @@ pub(in crate::hub) async fn explain_on(
     )
     .await?;
     ensure_rows_on(tx).await?;
+    super::row_budget::ensure_on(tx, hub, plan.known_event.trace).await?;
     // Complete population inventories include normal and actual departures as
     // well as every positive original count explanation, including later zero.
     if context.facts.known.len() >= harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY {
@@ -163,30 +164,32 @@ pub(in crate::hub) async fn classify_on(
         now,
     )
     .await?;
-    let context = {
+    let (context, plan, state) = {
         let mut reader = OriginalReader::new(tx);
-        Box::pin(super::count_classification::current_on(
+        let context = Box::pin(super::count_classification::current_on(
             &mut reader,
             hub,
             &command,
             Some(&operation),
         ))
-        .await?
-    };
-    let plan = command
-        .plan(&context.domain(), own, actor, now)
-        .map_err(super::additional_review::error)?;
-    handling::treatment::capacity::ensure_on(
-        tx,
-        actor,
-        &operation,
-        handling::treatment::capacity::Reservation::CountClassification {
-            report: plan.report.is_some(),
-        },
-    )
-    .await?;
-    ensure_rows_on(tx).await?;
-    let state = stock::read::state_on(tx, hub).await?;
+        .await?;
+        let plan = command
+            .plan(&context.domain(), own, actor, now)
+            .map_err(super::additional_review::error)?;
+        handling::treatment::capacity::ensure_with_proofs_on(
+            &mut reader,
+            actor,
+            &operation,
+            handling::treatment::capacity::Reservation::CountClassification {
+                report: plan.report.is_some(),
+            },
+        )
+        .await?;
+        ensure_rows_on(&mut reader).await?;
+        super::row_budget::ensure_on(&mut reader, hub, plan.before.original().trace).await?;
+        let state = stock::read::state_with_proofs_on(&mut reader, hub).await?;
+        (context, plan, state)
+    }; // Drop the entire read phase before original persistence below.
     let op = OperationRecord {
         id: operation.clone(),
         kind: "correction_count_classify".into(),
@@ -235,25 +238,30 @@ pub(in crate::hub) async fn classify_on(
     advance_metadata_on(tx, hub, &state, &root.op).await?;
     let restored = {
         let mut reader = OriginalReader::new(tx);
-        Box::pin(reader.count_classification(hub, root.op)).await?
+        let restored = Box::pin(reader.count_classification(hub, root.op)).await?;
+        if restored.original != plan {
+            return Err(corrupt_storage());
+        }
+        stock::read::state_with_proofs_on(&mut reader, hub).await?;
+        restored
     };
-    if restored.original != plan {
-        return Err(corrupt_storage());
-    }
-    stock::read::state_on(tx, hub).await?;
     Ok(restored.as_ref().clone())
 }
 
-async fn advance_metadata_on(
+pub(super) async fn advance_metadata_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     state: &stock::read::StockState,
     op: &OperationRecord,
 ) -> Result<(), SafeError> {
-    if !matches!(
+    let count_kind = matches!(
         op.kind.as_str(),
         "correction_count_explain" | "correction_count_classify"
-    ) || state.revision.value().checked_add(1) != Some(op.revision.value())
+    );
+    let association_kind =
+        crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 22 && op.kind == "count_return_associate";
+    if (!count_kind && !association_kind)
+        || state.revision.value().checked_add(1) != Some(op.revision.value())
     {
         return Err(corrupt_storage());
     }
@@ -277,17 +285,7 @@ async fn advance_metadata_on(
 }
 
 async fn ensure_rows_on(tx: &mut ServiceSqliteTransaction<'_>) -> Result<(), SafeError> {
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_corrections")
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|_| storage_unavailable())?;
-    if count < 0 {
-        return Err(corrupt_storage());
-    }
-    if count >= harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS as i64 {
-        return Err(stock::capacity());
-    }
-    Ok(())
+    super::row_budget::ensure_hub_on(tx).await
 }
 async fn insert_root_on(
     tx: &mut ServiceSqliteTransaction<'_>,

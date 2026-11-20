@@ -23,6 +23,36 @@ fn note() -> SourceProvenance {
         .unwrap()
 }
 
+pub(in crate::hub) fn trace_policy_fixture() -> (ReferenceCatalog, CountReturnAssociationPlan) {
+    let fixture = Fixture::new();
+    let plan = fixture.plan().unwrap();
+    (fixture.catalog, plan)
+}
+
+pub(in crate::hub) fn trace_two_returns_fixture()
+-> (ReferenceCatalog, Vec<CountReturnAssociationPlan>) {
+    let mut fixture = Fixture::with_quantity(2);
+    let first = fixture.plan().unwrap();
+    fixture.account = first.after.clone();
+    fixture.associations.push(first.association.clone());
+    fixture.returned = returned(
+        &fixture.catalog,
+        &fixture.original,
+        id(231),
+        first.association.stock_revision,
+        1,
+        Occurrence::Known(at(100)),
+        at(205),
+    );
+    fixture.cut = fixture.returned.stock_revision;
+    fixture.clock = at(210);
+    let second = fixture
+        .command()
+        .plan(&fixture.context(), id(241), fixture.original.actor, at(220))
+        .unwrap();
+    (fixture.catalog, vec![first, second])
+}
+
 struct Fixture {
     catalog: ReferenceCatalog,
     original: CountExplanationPlan,

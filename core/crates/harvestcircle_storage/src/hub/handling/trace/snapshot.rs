@@ -206,8 +206,19 @@ pub(super) async fn load_with_proofs_on(
     let quantity_corrections =
         crate::hub::corrections::quantity::trace_accounts_on(tx, hub, trace, state.revision)
             .await?;
+    let counts = Box::pin(crate::hub::corrections::count_trace::load_on(
+        tx,
+        hub,
+        trace,
+        state.revision,
+        catalog.revision(),
+    ))
+    .await?;
     let snapshot =
         TraceSnapshot {
+            count_interpretations: counts.inventory,
+            count_return_associations: counts.associations,
+            count_return_uncertain: counts.unresolved_returns,
             recipient_corrections: Box::pin(
                 crate::hub::corrections::recipient_records_with_proofs_on(tx, hub, state.revision),
             )

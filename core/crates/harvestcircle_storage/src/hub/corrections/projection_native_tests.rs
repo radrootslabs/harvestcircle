@@ -65,13 +65,20 @@ async fn actual_debit_configuration(
     early_return: bool,
     hold_before_debit: Option<bool>,
 ) -> (PhysicalStockGroup, DurableRequestId, u32) {
-    actual_debit_hold_configuration(db, early_return, hold_before_debit, false).await
+    actual_debit_hold_configuration(db, early_return, hold_before_debit, false, 3).await
 }
 
 pub(in crate::hub::corrections) async fn actual_debit_unknown_hold(
     db: &Database,
 ) -> (PhysicalStockGroup, DurableRequestId, u32) {
-    actual_debit_hold_configuration(db, false, Some(true), true).await
+    actual_debit_hold_configuration(db, false, Some(true), true, 3).await
+}
+
+pub(in crate::hub) async fn actual_debit_to(
+    db: &Database,
+    recipient: u8,
+) -> (PhysicalStockGroup, DurableRequestId, u32) {
+    actual_debit_hold_configuration(db, false, None, false, recipient).await
 }
 
 async fn actual_debit_hold_configuration(
@@ -79,11 +86,34 @@ async fn actual_debit_hold_configuration(
     early_return: bool,
     hold_before_debit: Option<bool>,
     unknown_hold: bool,
+    recipient: u8,
 ) -> (PhysicalStockGroup, DurableRequestId, u32) {
     use harvestcircle_domain::hub::actuals::{
         ActualNewDepartureCommand, ActualReportCommand, ActualReportSources, ActualReviewFacts,
     };
-    let catalog = crate::hub::stock::tests::setup(db).await;
+    let mut catalog = crate::hub::stock::tests::setup(db).await;
+    if recipient != 3 {
+        use harvestcircle_domain::hub::reference::{
+            ReferenceCommand, ReferenceMutation, ReferenceValue,
+        };
+        db.apply_hub_reference(
+            owner(),
+            operation(700),
+            ReferenceCommand {
+                expected_catalog_revision: catalog.revision(),
+                mutation: ReferenceMutation::Create {
+                    id: id(recipient),
+                    value: ReferenceValue::Party {
+                        label: HubLabel::new("Distinct unamended actual buyer").unwrap(),
+                    },
+                },
+            },
+            at(100),
+        )
+        .await
+        .unwrap();
+        catalog = db.hub_references(owner()).await.unwrap();
+    }
     let mut receipt = crate::hub::stock::tests::command(&catalog);
     receipt.occurred = Occurrence::Known(at(100));
     let intake = db
@@ -150,7 +180,7 @@ async fn actual_debit_hold_configuration(
                     group,
                     expected_group_revision: view.group.revision,
                     packs: WholePacks::from_value(2).unwrap(),
-                    recipient: id(3),
+                    recipient: id(recipient),
                     occurred: Occurrence::Known(at(110)),
                     source_evidence: note("Original receiving cohort independently established"),
                     quantity_evidence: note("Two whole packs verified"),

@@ -92,6 +92,8 @@ impl HubTraceQueryDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubTraceRowDto {
+    pub gross_counted_loss_whole_packs: u32,
+    pub explained_count_loss_whole_packs: u32,
     pub source_corrections: Vec<HubTraceSourceCorrectionDto>,
     pub recipient_corrections: Vec<HubTraceRecipientCorrectionDto>,
     pub trace: HubStockPopulationDto,
@@ -125,6 +127,8 @@ impl From<HubTracePage> for HubTracePageDto {
                 .rows
                 .into_iter()
                 .map(|row| HubTraceRowDto {
+                    gross_counted_loss_whole_packs: row.balance.gross_counted_loss.value(),
+                    explained_count_loss_whole_packs: row.balance.explained_count_loss.value(),
                     source_corrections: row.source_corrections.iter().map(Into::into).collect(),
                     recipient_corrections: row
                         .recipient_corrections
@@ -206,6 +210,12 @@ pub struct HubTraceCountLossDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubTraceSnapshotDto {
+    pub gross_counted_loss_whole_packs: u32,
+    pub explained_count_loss_whole_packs: u32,
+    pub count_interpretations: Option<crate::hub_count_interpretations::HubCountInterpretationsDto>,
+    pub count_return_associations:
+        Vec<crate::hub_count_interpretations::HubCountReturnAssociationDto>,
+    pub count_return_uncertain: bool,
     pub source_corrections: Vec<HubTraceSourceCorrectionDto>,
     pub recipient_corrections: Vec<HubTraceRecipientCorrectionDto>,
     pub hub_id: String,
@@ -378,6 +388,19 @@ impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
     fn try_from(value: TraceSnapshot) -> Result<Self, Self::Error> {
         let balance = value.balance().map_err(|_| invalid_input())?;
         Ok(Self {
+            gross_counted_loss_whole_packs: balance.gross_counted_loss.value(),
+            explained_count_loss_whole_packs: balance.explained_count_loss.value(),
+            count_interpretations: value
+                .count_interpretations
+                .as_ref()
+                .map(TryInto::try_into)
+                .transpose()?,
+            count_return_associations: value
+                .count_return_associations
+                .iter()
+                .map(Into::into)
+                .collect(),
+            count_return_uncertain: value.count_return_uncertain,
             source_corrections: value.source_corrections.iter().map(Into::into).collect(),
             recipient_corrections: value.recipient_corrections.iter().map(Into::into).collect(),
             hub_id: value
@@ -522,6 +545,9 @@ pub enum HubTraceHistoryKindDto {
     AdditionalCorrected,
     SourceAttributed,
     RecipientAttributed,
+    CountExplained,
+    CountClassified,
+    CountReturnAssociated,
 }
 impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
     fn from(value: HubTraceHistoryKind) -> Self {
@@ -541,6 +567,9 @@ impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
             HubTraceHistoryKind::AdditionalCorrected => Self::AdditionalCorrected,
             HubTraceHistoryKind::SourceAttributed => Self::SourceAttributed,
             HubTraceHistoryKind::RecipientAttributed => Self::RecipientAttributed,
+            HubTraceHistoryKind::CountExplained => Self::CountExplained,
+            HubTraceHistoryKind::CountClassified => Self::CountClassified,
+            HubTraceHistoryKind::CountReturnAssociated => Self::CountReturnAssociated,
             HubTraceHistoryKind::Handling(kind) => match kind {
                 HubHandlingKind::Move => Self::Move,
                 HubHandlingKind::Split => Self::Split,

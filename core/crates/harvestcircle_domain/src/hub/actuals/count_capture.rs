@@ -20,10 +20,11 @@ pub const ACTUAL_KNOWN_COUNT_INVENTORY_SCHEMA: u8 = 2;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActualKnownCountInventory {
     facts: ActualKnownInterpretations,
+    views: Vec<ActualKnownInterpretationView>,
 }
 impl ActualKnownCountInventory {
     pub fn new(mut facts: ActualKnownInterpretations) -> Result<Self, ActualReportError> {
-        super::interpretation::validate_inventory(&facts, None)?;
+        let views = super::interpretation::validate_inventory(&facts, None)?;
         let mut accounts = BTreeMap::new();
         let mut selected: BTreeMap<HubRecordId, BTreeSet<HubRecordId>> = BTreeMap::new();
         for record in &mut facts.records {
@@ -55,11 +56,18 @@ impl ActualKnownCountInventory {
                 return Err(ActualReportError::InvalidHistory);
             }
         }
-        Ok(Self { facts })
+        Ok(Self { facts, views })
     }
     #[must_use]
     pub const fn facts(&self) -> &ActualKnownInterpretations {
         &self.facts
+    }
+
+    /// Paired immutable descriptive views, checked by this inventory's only
+    /// constructor. Reuse does not authenticate native completeness or authority.
+    #[must_use]
+    pub fn views(&self) -> &[ActualKnownInterpretationView] {
+        &self.views
     }
 
     /// Purpose-separated field consistency, never a native completeness proof.
